@@ -1,7 +1,11 @@
+import os
+
 from redis.asyncio import Redis
 
-redis = Redis(
-    host="redis",
-    port=6379,
-    decode_responses=True
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+# Use one env-configured Redis URL for both local Docker and container-network runs.
+redis = Redis.from_url(
+    REDIS_URL,
+    decode_responses=True,
 )

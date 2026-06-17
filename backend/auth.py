@@ -7,7 +7,8 @@ from sqlalchemy import select
 from .database import get_db
 from .model import User
 
-SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "change-this-dev-secret")
+# Dev fallback is long enough for HS256; production should still set SESSION_SECRET_KEY.
+SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "change-this-dev-secret-at-least-32-bytes")
 COOKIE_NAME = "medium_session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, WebSocket
-from ws_manager import manager
+
+from .ws_manager import manager
 
 router= APIRouter()
 

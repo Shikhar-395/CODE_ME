@@ -1,37 +1,97 @@
 import json
-from redis_client import redis
-from fastapi import Depends
+
 from sqlalchemy import select
-from vm import mini_machine
-from .model import Base, Question, Test, TestCase, User, Submission, SubmissionStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 
-async def judge(submission_id:int, db: AsyncSession):
-    submission_id= submission_id
-    submission= await db.execute(select(Submission).where(Submission.id == submission_id))
-    result= submission.scalar_one_or_none()
-    code= result.code
-    language= result.language
-    user_id= result.user_id
-    quesiton_id= result.question_id
-    test_case_result= await db.execute(select(TestCase).where(TestCase.question_id == quesiton_id))
-    test_case= test_case_result.scalars().all()
+from .database import SessionLocal
+from .model import Submission, SubmissionStatus, TestCase
+from .redis_client import redis
+from .vm import mini_machine
 
-
-    result= mini_machine(user_id,quesiton_id,test_case,code,language)
-    return result
 
 async def worker():
-    while True:
 
-        job= redis.brpop("submission_queue")
-        submission_id= int(job[1])
-        result= judge(submission_id)
+    try:
+        while True:
 
-        await redis.publish(
-            "submission_updates",
-            json.dump({
-                "submission_id": submission_id,
-                "status": result["status"]
-            })
+            # Poll with a Redis-side timeout so the async client never sits on a stale blocking read.
+            job = await redis.brpop(
+                "submission_queue",
+                timeout=1,
+            )
+            if job is None:
+                continue
+
+            submission_id = int(job[1])
+
+            # Use the configured session factory so worker DB access matches the API DATABASE_URL.
+            async with SessionLocal() as db:
+
+                result = await judge(
+                    submission_id,
+                    db
+                )
+
+            if not result:
+                continue
+
+            await redis.publish(
+                "submission_updates",
+                json.dumps({
+                    "submission_id":
+                        submission_id,
+                    "status":
+                        result["status"].value
+                })
+            )
+    finally:
+        # Close the Redis connection when the worker is stopped during local testing.
+        await redis.aclose()
+
+
+async def judge(
+    submission_id: int,
+    db: AsyncSession
+):
+
+    query = await db.execute(
+        select(Submission).where(
+            Submission.id == submission_id
         )
+    )
+
+    submission = query.scalar_one_or_none()
+
+    if not submission:
+        return None
+
+    test_case_query = await db.execute(
+        select(TestCase).where(
+            TestCase.question_id
+            == submission.question_id
+        )
+    )
+
+    test_cases = (
+        test_case_query
+        .scalars()
+        .all()
+    )
+
+    # Pass the whole submission so the VM can read code and language consistently.
+    response = await mini_machine(submission, test_cases)
+
+    submission.status = response["status"]
+
+    await db.commit()
+
+    return response
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    try:
+        asyncio.run(worker())
+    except KeyboardInterrupt:
+        pass

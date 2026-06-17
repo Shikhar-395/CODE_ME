@@ -4,3 +4,7 @@ sqlalchemy
 aiosqlite
 greenlet
 PyJWT
+# Async Postgres driver for Docker-backed DATABASE_URL values.
+asyncpg
+# Redis queue client used by the API, worker, and websocket update listener.
+redis

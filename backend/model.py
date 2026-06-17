@@ -22,6 +22,8 @@ class Language(str, Enum):
     CPP = "cpp"
     PYTHON = "python"
     JAVA = "java"
+    # Keep the API enum aligned with language_config.py runner entries.
+    JAVASCRIPT = "javascript"
 
 class User(Base):
     __tablename__ = "users"

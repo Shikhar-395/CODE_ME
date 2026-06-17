@@ -1,15 +1,19 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from redis_client import redis
 from .auth import get_current_user, set_session_cookies
 from .database import engine, get_db
 from .model import Base, Question, Test, TestCase, User, Submission, SubmissionStatus
+from .pub_sub import listen_for_updates
+from .redis_client import redis
 from .schema import (
     QuestionCreate,
     QuestionResponse,
+    SubmissionCreate,
+    SubmissionResponse,
     TestCaseCreate,
     TestCaseResponse,
     TestCreate,
@@ -17,19 +21,28 @@ from .schema import (
     UserCreate,
     UserLogin,
     UserResponse,
-    SubmissionResponce,
-    SubmissionCreate
 )
+from .websocket import router as websocket_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield
+
+    # Keep Redis pub/sub connected while the API is up so websocket clients get judge updates.
+    updates_task = asyncio.create_task(listen_for_updates())
+    try:
+        yield
+    finally:
+        updates_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await updates_task
+        await redis.aclose()
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(websocket_router)
 
 
 @app.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -147,28 +160,32 @@ async def create_test_case(
 
     return test_case
 
-@app.post("/submission", response_model=SubmissionResponce)
-async def code_submission(data:SubmissionCreate, question_id:int, db:AsyncSession= Depends(get_db), user_id:User= Depends(get_current_user)):
-    question= await db.get(Question, question_id)
+@app.post("/submission", response_model=SubmissionResponse, status_code=status.HTTP_201_CREATED)
+async def code_submission(
+    data: SubmissionCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    question= await db.get(Question, data.question_id)
     if not question:
         raise HTTPException(
             status_code=404
         )
 
+    # Attach the authenticated user before flushing because submissions.user_id is required.
     submission= Submission(
         code= data.code,
         language= data.language,
         status= SubmissionStatus.PENDING,
-        question_id= question_id
+        user_id=user.id,
+        question_id= data.question_id
     )
 
     db.add(submission)
     await db.commit()
     await db.refresh(submission)
 
+    # Queue only after commit so the worker can load the persisted submission row.
     await redis.lpush("submission_queue", submission.id)
 
-    return {
-        "submission_id": submission.id,
-        "status": submission.status
-    }
+    return submission
