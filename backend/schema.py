@@ -97,6 +97,27 @@ class SubmissionResponse(BaseModel):
     question_id: int
 
 
+class TestWithQuestionsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    description: str
+    duration: int
+    created_by: int
+    questions: list[QuestionResponse] = []
+
+
+class QuestionDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    description: str
+    test_id: int
+    test_cases: list[TestCaseResponse] = []
+
+
 # Backwards-compatible aliases for the earlier misspelled class names.
 User_Schema = UserCreate
 User_Responce = UserResponse
@@ -106,3 +127,4 @@ Question_Responce = QuestionResponse
 TestCaseResponce = TestCaseResponse
 AttemptResponce = AttemptResponse
 SubmissionResponce = SubmissionResponse
+

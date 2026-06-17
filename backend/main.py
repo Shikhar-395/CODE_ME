@@ -2,9 +2,11 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from .auth import get_current_user, set_session_cookies
+from sqlalchemy.orm import selectinload
+from .auth import get_current_user, set_session_cookies, COOKIE_NAME, COOKIE_SECURE
 from .database import engine, get_db
 from .model import Base, Question, Test, TestCase, User, Submission, SubmissionStatus
 from .pub_sub import listen_for_updates
@@ -21,7 +23,10 @@ from .schema import (
     UserCreate,
     UserLogin,
     UserResponse,
+    TestWithQuestionsResponse,
+    QuestionDetailResponse,
 )
+
 from .websocket import router as websocket_router
 
 
@@ -42,6 +47,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(websocket_router)
 
 
@@ -189,3 +203,61 @@ async def code_submission(
     await redis.lpush("submission_queue", submission.id)
 
     return submission
+
+
+@app.get("/me", response_model=UserResponse)
+async def get_me(user: User = Depends(get_current_user)):
+    return user
+
+
+@app.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax"
+    )
+    return {"detail": "Logged out"}
+
+
+@app.get("/tests", response_model=list[TestResponse])
+async def list_tests(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Test))
+    tests = result.scalars().all()
+    return tests
+
+
+@app.get("/tests/{test_id}", response_model=TestWithQuestionsResponse)
+async def get_test(test_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Test)
+        .options(selectinload(Test.questions))
+        .where(Test.id == test_id)
+    )
+    test = result.scalar_one_or_none()
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    return test
+
+
+@app.get("/questions/{question_id}", response_model=QuestionDetailResponse)
+async def get_question(question_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Question)
+        .options(selectinload(Question.test_cases))
+        .where(Question.id == question_id)
+    )
+    question = result.scalar_one_or_none()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return question
+
+
+@app.get("/submissions/{submission_id}", response_model=SubmissionResponse)
+async def get_submission(submission_id: int, db: AsyncSession = Depends(get_db)):
+    submission = await db.get(Submission, submission_id)
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    return submission
+
