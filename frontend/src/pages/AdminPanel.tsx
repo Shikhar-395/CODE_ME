@@ -29,6 +29,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
   const [selectedTestId, setSelectedTestId] = useState<number>(0);
   const [qTitle, setQTitle] = useState('');
   const [qDesc, setQDesc] = useState('');
+  const [tc1Input, setTc1Input] = useState('5\n1 2 3 4 5\n3');
+  const [tc1Output, setTc1Output] = useState('3');
+  const [tc2Input, setTc2Input] = useState('0\n0');
+  const [tc2Output, setTc2Output] = useState('-1');
 
   // Form states - Add Testcase
   const [tcTestId, setTcTestId] = useState<number>(0);
@@ -157,11 +161,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
         title: qTitle,
         description: qDesc
       });
-      showFeedback(`Successfully added question "${newQ.title}"!`, null);
+      
+      // Submit visible test case
+      if (tc1Input.trim() && tc1Output.trim()) {
+        await api.addTestCase({
+          question_id: newQ.id,
+          input_data: tc1Input,
+          output_data: tc1Output,
+          is_hidden: false
+        });
+      }
+
+      // Submit hidden test case
+      if (tc2Input.trim() && tc2Output.trim()) {
+        await api.addTestCase({
+          question_id: newQ.id,
+          input_data: tc2Input,
+          output_data: tc2Output,
+          is_hidden: true
+        });
+      }
+
+      showFeedback(`Successfully created problem "${newQ.title}" with test cases!`, null);
       
       // Reset form
       setQTitle('');
       setQDesc('');
+      setTc1Input('5\n1 2 3 4 5\n3');
+      setTc1Output('3');
+      setTc2Input('0\n0');
+      setTc2Output('-1');
       loadInitialData(); // reload tests to ensure we get questions refreshed
     } catch (err: unknown) {
       showFeedback(null, getErrorMessage(err, 'Failed to create question.'));
@@ -318,54 +347,152 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
 
           {activeTab === 'question' && (
             <div className="fade-in">
-              <h3 className="mb-4">Add Problem to Contest</h3>
-              <form onSubmit={handleCreateQuestion}>
-                <div className="form-group">
-                  <label className="form-label">Select Contest</label>
-                  <select
-                    className="form-input select-input"
-                    value={selectedTestId}
-                    onChange={e => setSelectedTestId(parseInt(e.target.value) || 0)}
-                    required
-                    disabled={loading}
-                  >
-                    <option value={0} disabled>-- Select a Contest --</option>
-                    {tests.map(t => (
-                      <option key={t.id} value={t.id}>{t.title}</option>
-                    ))}
-                  </select>
+              <h3 className="mb-6" style={{ fontSize: '20px', fontWeight: '700' }}>Create New Problem</h3>
+              <form onSubmit={handleCreateQuestion} className="create-question-split">
+                {/* Left Column: Form Details */}
+                <div className="flex flex-col gap-4">
+                  <div className="form-group">
+                    <label className="form-label">Select Contest</label>
+                    <select
+                      className="form-input select-input"
+                      value={selectedTestId}
+                      onChange={e => setSelectedTestId(parseInt(e.target.value) || 0)}
+                      required
+                      disabled={loading}
+                    >
+                      <option value={0} disabled>-- Select a Contest --</option>
+                      {tests.map(t => (
+                        <option key={t.id} value={t.id}>{t.title}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Problem Title</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Reverse Linked List III"
+                      value={qTitle}
+                      onChange={e => setQTitle(e.target.value)}
+                      required
+                      disabled={loading}
+                    />
+                  </div>
+
+                  <div className="flex gap-4">
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Difficulty</label>
+                      <select className="form-input select-input" disabled style={{ background: 'var(--bg-main)', opacity: 0.8 }}>
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Category Tags</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. dp, graph, tree"
+                        disabled
+                        style={{ background: 'var(--bg-main)', opacity: 0.8 }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Problem Description (Markdown)</label>
+                    <textarea
+                      className="form-input text-area-input"
+                      rows={8}
+                      placeholder="Write problem description here..."
+                      value={qDesc}
+                      onChange={e => setQDesc(e.target.value)}
+                      required
+                      disabled={loading}
+                      style={{ minHeight: '180px' }}
+                    />
+                  </div>
+
+                  <div className="flex gap-4 mt-2">
+                    <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => showFeedback('Draft saved successfully (mocked)!', null)}>
+                      Save Draft
+                    </button>
+                    <button type="submit" className="btn btn-primary" style={{ flex: 1, backgroundColor: 'var(--color-primary)', color: 'var(--bg-main)' }} disabled={loading || selectedTestId === 0 || !qTitle || !qDesc}>
+                      {loading ? <RefreshCw className="animate-spin" size={16} /> : null}
+                      <span>Publish</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Problem Title</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Two Sum"
-                    value={qTitle}
-                    onChange={e => setQTitle(e.target.value)}
-                    required
-                    disabled={loading}
-                  />
-                </div>
+                {/* Right Column: Test Cases */}
+                <div className="test-cases-sidebar flex flex-col gap-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 style={{ fontSize: '15px', fontWeight: '600' }}>Test Cases</h3>
+                    <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: '11px', borderColor: 'var(--border-color)' }}>
+                      + Add Case
+                    </button>
+                  </div>
 
-                <div className="form-group">
-                  <label className="form-label">Problem Description (supports markdown instructions)</label>
-                  <textarea
-                    className="form-input text-area-input"
-                    rows={6}
-                    placeholder="e.g. Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target..."
-                    value={qDesc}
-                    onChange={e => setQDesc(e.target.value)}
-                    required
-                    disabled={loading}
-                  />
-                </div>
+                  {/* Case 1: Visible */}
+                  <div className="card" style={{ padding: '16px', backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+                    <div className="flex justify-between items-center mb-2">
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>CASE 01 <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '6px', textTransform: 'none' }}>visible</span></span>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: '10px' }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>STDIN</label>
+                      <textarea
+                        className="form-input text-area-input"
+                        rows={2}
+                        value={tc1Input}
+                        onChange={e => setTc1Input(e.target.value)}
+                        disabled={loading}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '6px 10px' }}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: '0' }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>EXPECTED STDOUT</label>
+                      <textarea
+                        className="form-input text-area-input"
+                        rows={1}
+                        value={tc1Output}
+                        onChange={e => setTc1Output(e.target.value)}
+                        disabled={loading}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '6px 10px' }}
+                      />
+                    </div>
+                  </div>
 
-                <button type="submit" className="btn btn-primary" disabled={loading || selectedTestId === 0 || !qTitle || !qDesc}>
-                  {loading ? <RefreshCw className="animate-spin" size={16} /> : <Plus size={16} />}
-                  <span>Add Problem</span>
-                </button>
+                  {/* Case 2: Hidden */}
+                  <div className="card" style={{ padding: '16px', backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+                    <div className="flex justify-between items-center mb-2">
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>CASE 02 <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '6px', textTransform: 'none' }}>hidden</span></span>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: '10px' }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>STDIN</label>
+                      <textarea
+                        className="form-input text-area-input"
+                        rows={2}
+                        value={tc2Input}
+                        onChange={e => setTc2Input(e.target.value)}
+                        disabled={loading}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '6px 10px' }}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: '0' }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>EXPECTED STDOUT</label>
+                      <textarea
+                        className="form-input text-area-input"
+                        rows={1}
+                        value={tc2Output}
+                        onChange={e => setTc2Output(e.target.value)}
+                        disabled={loading}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '6px 10px' }}
+                      />
+                    </div>
+                  </div>
+                </div>
               </form>
             </div>
           )}
