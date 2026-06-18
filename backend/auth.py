@@ -18,6 +18,11 @@ load_environment()
 SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "change-this-dev-secret-at-least-32-bytes")
 COOKIE_NAME = "medium_session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax").lower()
+if COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    raise RuntimeError(
+        "COOKIE_SAMESITE must be one of: lax, strict, none."
+    )
 password_hasher = PasswordHasher()
 
 
@@ -66,7 +71,7 @@ def set_session_cookies(user_id: int, response: Response) -> None:
         max_age=60 * 60 * 24 * 7,
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax"
+        samesite=COOKIE_SAMESITE,
     )
 
 

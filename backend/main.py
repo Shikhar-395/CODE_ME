@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from .auth import (
     COOKIE_NAME,
+    COOKIE_SAMESITE,
     COOKIE_SECURE,
     get_current_user,
     hash_password,
@@ -70,9 +71,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+cors_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -248,7 +258,7 @@ async def logout(response: Response):
         key=COOKIE_NAME,
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax"
+        samesite=COOKIE_SAMESITE,
     )
     return {"detail": "Logged out"}
 
