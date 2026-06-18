@@ -7,7 +7,6 @@ class UserCreate(BaseModel):
     name: str = Field(min_length=3, max_length=30)
     username: str = Field(min_length=4, max_length=20)
     password: str = Field(min_length=4, max_length=72)
-    role: UserRole = UserRole.USER
 
 
 class UserLogin(BaseModel):
@@ -127,4 +126,3 @@ Question_Responce = QuestionResponse
 TestCaseResponce = TestCaseResponse
 AttemptResponce = AttemptResponse
 SubmissionResponce = SubmissionResponse
-

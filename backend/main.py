@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, HTTPException, Response, status
@@ -6,11 +7,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from .auth import get_current_user, set_session_cookies, COOKIE_NAME, COOKIE_SECURE
+from .auth import (
+    COOKIE_NAME,
+    COOKIE_SECURE,
+    get_current_user,
+    hash_password,
+    require_admin,
+    set_session_cookies,
+    verify_password,
+)
 from .database import engine, get_db
-from .model import Base, Question, Test, TestCase, User, Submission, SubmissionStatus
+from .model import (
+    Base,
+    Question,
+    Submission,
+    SubmissionStatus,
+    Test,
+    TestCase,
+    User,
+    UserRole,
+)
 from .pub_sub import listen_for_updates
 from .redis_client import redis
+from .seed import seed_demo_data
 from .schema import (
     QuestionCreate,
     QuestionResponse,
@@ -34,6 +53,9 @@ from .websocket import router as websocket_router
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    if os.getenv("AUTO_SEED_DEMO_DATA", "false").lower() == "true":
+        await seed_demo_data()
 
     # Keep Redis pub/sub connected while the API is up so websocket clients get judge updates.
     updates_task = asyncio.create_task(listen_for_updates())
@@ -69,8 +91,8 @@ async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db)):
     user = User(
         name=data.name,
         username=data.username,
-        password=data.password,
-        role=data.role,
+        password=hash_password(data.password),
+        role=UserRole.USER,
     )
 
     db.add(user)
@@ -85,8 +107,18 @@ async def user_signin(data: UserLogin, response: Response, db: AsyncSession = De
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
 
-    if not user or user.password != data.password:
+    if not user:
         raise HTTPException(status_code=401, detail="Wrong credentials")
+
+    password_valid, upgraded_hash = verify_password(
+        data.password,
+        user.password,
+    )
+    if not password_valid:
+        raise HTTPException(status_code=401, detail="Wrong credentials")
+    if upgraded_hash:
+        user.password = upgraded_hash
+        await db.commit()
 
     set_session_cookies(user.id, response)
     return user
@@ -96,7 +128,7 @@ async def user_signin(data: UserLogin, response: Response, db: AsyncSession = De
 async def create_test(
     data: TestCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     test = Test(
         title=data.title,
@@ -116,7 +148,7 @@ async def create_test(
 async def add_question(
     data: QuestionCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     result = await db.execute(select(Test).where(Test.id == data.test_id))
     test = result.scalar_one_or_none()
@@ -145,7 +177,7 @@ async def add_question(
 async def create_test_case(
     data: TestCaseCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     result = await db.execute(
         select(Question, Test)
@@ -251,7 +283,17 @@ async def get_question(question_id: int, db: AsyncSession = Depends(get_db)):
     question = result.scalar_one_or_none()
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
-    return question
+    return QuestionDetailResponse(
+        id=question.id,
+        title=question.title,
+        description=question.description,
+        test_id=question.test_id,
+        test_cases=[
+            TestCaseResponse.model_validate(test_case)
+            for test_case in question.test_cases
+            if not test_case.is_hidden
+        ],
+    )
 
 
 @app.get("/submissions/{submission_id}", response_model=SubmissionResponse)
@@ -260,4 +302,3 @@ async def get_submission(submission_id: int, db: AsyncSession = Depends(get_db))
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
     return submission
-

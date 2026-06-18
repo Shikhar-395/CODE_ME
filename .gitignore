@@ -15,6 +15,7 @@ env/
 # Local environment and secrets
 .env
 .env.*
+!.env.docker.example
 
 # Local databases
 *.db

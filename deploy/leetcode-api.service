@@ -1,0 +1,23 @@
+[Unit]
+Description=Leetcode FastAPI backend
+After=network-online.target redis-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/leetcode
+EnvironmentFile=/home/ubuntu/leetcode/.env
+ExecStart=/home/ubuntu/leetcode/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import os
 import tempfile
 from pathlib import Path
 
@@ -7,6 +9,7 @@ from .model import SubmissionStatus
 
 COMPILE_TIMEOUT_SECONDS = 10
 RUN_TIMEOUT_SECONDS = 5
+logger = logging.getLogger(__name__)
 
 
 async def compile_code(temp_dir: str, command: list[str]) -> dict:
@@ -68,7 +71,7 @@ async def run_code(temp_dir: str, command: list[str], input_data: str) -> dict:
         "error": stderr.decode(),
     }
 
-async def mini_machine(submission, test_cases):
+async def local_machine(submission, test_cases):
     config = LANGUAGE_CONFIG[submission.language]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -108,3 +111,30 @@ async def mini_machine(submission, test_cases):
                 return {"status": SubmissionStatus.WRONG_ANSWER}
 
         return {"status": SubmissionStatus.ACCEPTED}
+
+
+async def mini_machine(submission, test_cases):
+    executor = os.getenv("JUDGE_EXECUTOR", "docker").strip().lower()
+
+    if executor == "local":
+        return await local_machine(submission, test_cases)
+
+    if executor == "docker":
+        from .docker_executor import (
+            DockerExecutionError,
+            execute_in_docker,
+        )
+
+        try:
+            return await execute_in_docker(submission, test_cases)
+        except DockerExecutionError:
+            logger.exception(
+                "Docker failed while judging submission %s",
+                submission.id,
+            )
+            return {"status": SubmissionStatus.RUNTIME_ERROR}
+
+    raise ValueError(
+        f"Unsupported JUDGE_EXECUTOR={executor!r}; "
+        "expected 'docker' or 'local'."
+    )
