@@ -1,14 +1,16 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
-import type { QuestionDetail as QuestionDetailType, User } from '../api';
+import type { QuestionDetail as QuestionDetailType, Test, User } from '../api';
 import { getErrorMessage } from '../errors';
 import Editor from '@monaco-editor/react';
-import { ArrowLeft, RefreshCw, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, RefreshCw, AlertCircle, CheckCircle, XCircle, Eye, Clock } from 'lucide-react';
 
 interface QuestionDetailProps {
   questionId: number;
   user: User | null;
 }
+
+type SupportedLanguage = 'cpp' | 'python' | 'java' | 'javascript';
 
 const BOILERPLATE: Record<string, string> = {
   python: `# Write your Python 3 solution here
@@ -66,13 +68,14 @@ public class Main {
 }`
 };
 
-export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId }) => {
+export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId, user }) => {
   const [question, setQuestion] = useState<QuestionDetailType | null>(null);
+  const [contest, setContest] = useState<Test | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
   // Editor state
-  const [language, setLanguage] = useState<'cpp' | 'python' | 'java' | 'javascript'>('python');
+  const [language, setLanguage] = useState<SupportedLanguage>('python');
   const [code, setCode] = useState(BOILERPLATE.python);
   
   // Submission flow state
@@ -83,16 +86,28 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId }) =>
   useEffect(() => {
     let ignore = false;
 
-    api.getQuestion(questionId)
-      .then((data) => {
-        if (!ignore) setQuestion(data);
-      })
-      .catch((err) => {
+    const loadQuestion = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await api.getQuestion(questionId);
+        const contestData = user?.role === 'admin'
+          ? await api.getTest(data.test_id)
+          : null;
+
+        if (!ignore) {
+          setQuestion(data);
+          setContest(contestData);
+        }
+      } catch (err: unknown) {
         if (!ignore) setError(getErrorMessage(err, 'Failed to load question details.'));
-      })
-      .finally(() => {
+      } finally {
         if (!ignore) setLoading(false);
-      });
+      }
+    };
+
+    loadQuestion();
     
     // Clean up websocket connection on unmount
     return () => {
@@ -101,10 +116,10 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId }) =>
         wsRef.current.close();
       }
     };
-  }, [questionId]);
+  }, [questionId, user?.role]);
 
   // Handle changing language and updating boilerplate
-  const handleLanguageChange = (lang: 'cpp' | 'python' | 'java' | 'javascript') => {
+  const handleLanguageChange = (lang: SupportedLanguage) => {
     // Warn if user has edited code
     if (code !== BOILERPLATE[language] && !window.confirm('Change language? Your current code for this language will be reset.')) {
       return;
@@ -217,7 +232,7 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId }) =>
   // Filter example cases (non-hidden cases)
   const exampleTestCases = question?.test_cases.filter(tc => !tc.is_hidden) || [];
 
-  const getQuestionDifficulty = (q: any) => {
+  const getQuestionDifficulty = (q: QuestionDetailType | null) => {
     if (!q) return 'EASY';
     const title = q.title.toLowerCase();
     if (title.includes('two sum') || title.includes('easy') || q.id % 3 === 0) return 'EASY';
@@ -243,7 +258,81 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId }) =>
         </div>
       )}
 
-      {!loading && !error && question && (
+      {!loading && !error && question && user?.role === 'admin' && (
+        <div className="admin-problem-detail container">
+          <div className="admin-problem-toolbar">
+            <a href={`#test/${question.test_id}`} className="btn btn-secondary btn-sm">
+              <ArrowLeft size={16} aria-hidden="true" />
+              <span>Back to Contest</span>
+            </a>
+            <div className="view-only-badge">
+              <Eye size={15} aria-hidden="true" />
+              <span>View only</span>
+            </div>
+          </div>
+
+          <article className="admin-problem-statement card">
+            <header className="admin-problem-statement-header">
+              <div>
+                <p className="eyebrow">Problem #{question.id}</p>
+                <h1>{question.title}</h1>
+                <div className="admin-problem-meta">
+                  <span>{contest?.title || `Contest #${question.test_id}`}</span>
+                  {contest && (
+                    <span className="flex items-center gap-2">
+                      <Clock size={15} aria-hidden="true" />
+                      {contest.duration} minutes
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="view-only-callout">
+                <Eye size={20} aria-hidden="true" />
+                <div>
+                  <strong>Administrator preview</strong>
+                  <p>You can review this problem, but cannot run or submit code.</p>
+                </div>
+              </div>
+            </header>
+
+            <section className="statement-section" aria-labelledby="problem-description-heading">
+              <h2 id="problem-description-heading">Description</h2>
+              <div className="question-content-html">
+                {question.description.split('\n').map((paragraph, index) => (
+                  <p key={index}>{paragraph}</p>
+                ))}
+              </div>
+            </section>
+
+            <section className="statement-section" aria-labelledby="example-cases-heading">
+              <h2 id="example-cases-heading">Example cases</h2>
+              {exampleTestCases.length === 0 ? (
+                <div className="statement-empty">
+                  No public example cases have been added to this problem.
+                </div>
+              ) : (
+                <div className="admin-example-grid">
+                  {exampleTestCases.map((testCase, index) => (
+                    <div key={testCase.id} className="example-case card">
+                      <h3>Example {index + 1}</h3>
+                      <div className="io-block">
+                        <span className="io-label">Input</span>
+                        <pre>{testCase.input_data}</pre>
+                      </div>
+                      <div className="io-block">
+                        <span className="io-label">Expected output</span>
+                        <pre>{testCase.output_data}</pre>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </article>
+        </div>
+      )}
+
+      {!loading && !error && question && user?.role !== 'admin' && (
         <div className="workspace-body" style={{ gridTemplateColumns: '45% 55%' }}>
           {/* Left Panel: Description */}
           <div className="workspace-panel description-panel">
@@ -261,7 +350,6 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId }) =>
                 <span className={`problem-difficulty-badge ${getQuestionDifficulty(question).toLowerCase()}`} style={{ fontSize: '10px' }}>
                   {getQuestionDifficulty(question)}
                 </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>45.2K likes</span>
               </div>
             </div>
             <div className="panel-content scrollable">
@@ -306,7 +394,7 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId }) =>
                 <select
                   className="form-input select-input"
                   value={language}
-                  onChange={(e) => handleLanguageChange(e.target.value as any)}
+                  onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
                   disabled={submitting}
                   style={{
                     padding: '4px 12px',
@@ -388,8 +476,7 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId }) =>
             <div className="console-panel" style={{ maxHeight: '250px' }}>
               <div className="console-header flex justify-between items-center" style={{ padding: '8px 24px', borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-surface)' }}>
                 <div className="flex gap-4">
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--color-primary)' }}>Testcase</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)' }}>Console</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--color-primary)' }}>Console</span>
                 </div>
                 {submissionStatus && (
                   <div className={`console-status-badge badge ${getStatusClass(submissionStatus)}`} style={{ padding: '2px 8px', fontSize: '11px' }}>

@@ -1,16 +1,22 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.auth import hash_password, require_admin, verify_password
-from backend.main import create_user, get_question, user_signin
-from backend.model import Base, Question, Test, TestCase, User, UserRole
-from backend.schema import UserCreate, UserLogin
+from backend.main import (
+    code_submission,
+    create_user,
+    get_question,
+    list_admin_tests,
+    user_signin,
+)
+from backend.model import Base, Language, Question, Test, TestCase, User, UserRole
+from backend.schema import SubmissionCreate, UserCreate, UserLogin
 from backend.seed import seed_demo_data
 
 
@@ -50,7 +56,7 @@ class DatabaseBehaviorTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
         self.temp_dir.cleanup()
 
-    async def test_signup_always_creates_regular_user(self):
+    async def test_signup_creates_selected_admin_role(self):
         payload = UserCreate.model_validate(
             {
                 "name": "Demo User",
@@ -64,8 +70,21 @@ class DatabaseBehaviorTests(unittest.IsolatedAsyncioTestCase):
             user = await create_user(payload, db)
             stored = await db.get(User, user.id)
 
-        self.assertEqual(stored.role, UserRole.USER)
+        self.assertEqual(stored.role, UserRole.ADMIN)
         self.assertTrue(stored.password.startswith("$argon2"))
+
+    async def test_signup_defaults_to_regular_user(self):
+        payload = UserCreate(
+            name="Regular User",
+            username="regular@example.com",
+            password="safe-password",
+        )
+
+        async with self.sessions() as db:
+            user = await create_user(payload, db)
+            stored = await db.get(User, user.id)
+
+        self.assertEqual(stored.role, UserRole.USER)
 
     async def test_legacy_login_upgrades_plaintext_password(self):
         async with self.sessions() as db:
@@ -87,6 +106,54 @@ class DatabaseBehaviorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(user.password.startswith("$argon2"))
 
+    async def test_admin_login_returns_admin_role(self):
+        async with self.sessions() as db:
+            admin = User(
+                name="Admin",
+                username="admin@example.com",
+                password=hash_password("password"),
+                role=UserRole.ADMIN,
+            )
+            db.add(admin)
+            await db.commit()
+
+            signed_in = await user_signin(
+                UserLogin(
+                    username="admin@example.com",
+                    password="password",
+                    role=UserRole.ADMIN,
+                ),
+                Response(),
+                db,
+            )
+
+        self.assertEqual(signed_in.role, UserRole.ADMIN)
+
+    async def test_login_rejects_wrong_role_selection(self):
+        async with self.sessions() as db:
+            user = User(
+                name="Regular",
+                username="regular@example.com",
+                password=hash_password("password"),
+                role=UserRole.USER,
+            )
+            db.add(user)
+            await db.commit()
+
+            with self.assertRaises(HTTPException) as raised:
+                await user_signin(
+                    UserLogin(
+                        username="regular@example.com",
+                        password="password",
+                        role=UserRole.ADMIN,
+                    ),
+                    Response(),
+                    db,
+                )
+
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertIn("registered as a user", raised.exception.detail)
+
     async def test_non_admin_is_rejected(self):
         user = User(
             name="Regular",
@@ -99,6 +166,129 @@ class DatabaseBehaviorTests(unittest.IsolatedAsyncioTestCase):
             await require_admin(user)
 
         self.assertEqual(raised.exception.status_code, 403)
+
+    async def test_admin_tests_are_scoped_to_the_creator(self):
+        async with self.sessions() as db:
+            first_admin = User(
+                name="First Admin",
+                username="first-admin@example.com",
+                password=hash_password("password"),
+                role=UserRole.ADMIN,
+            )
+            second_admin = User(
+                name="Second Admin",
+                username="second-admin@example.com",
+                password=hash_password("password"),
+                role=UserRole.ADMIN,
+            )
+            db.add_all([first_admin, second_admin])
+            await db.flush()
+
+            first_test = Test(
+                title="First Admin Contest",
+                description="Owned by the first administrator.",
+                duration=30,
+                created_by=first_admin.id,
+            )
+            second_test = Test(
+                title="Second Admin Contest",
+                description="Owned by the second administrator.",
+                duration=45,
+                created_by=second_admin.id,
+            )
+            db.add_all([first_test, second_test])
+            await db.flush()
+            db.add_all(
+                [
+                    Question(
+                        title="First problem",
+                        description="Only the first admin should receive this.",
+                        test_id=first_test.id,
+                    ),
+                    Question(
+                        title="Second problem",
+                        description="Only the second admin should receive this.",
+                        test_id=second_test.id,
+                    ),
+                ]
+            )
+            await db.commit()
+
+            first_results = await list_admin_tests(db, first_admin)
+            second_results = await list_admin_tests(db, second_admin)
+
+        self.assertEqual([test.title for test in first_results], ["First Admin Contest"])
+        self.assertEqual(
+            [question.title for question in first_results[0].questions],
+            ["First problem"],
+        )
+        self.assertEqual([test.title for test in second_results], ["Second Admin Contest"])
+        self.assertEqual(
+            [question.title for question in second_results[0].questions],
+            ["Second problem"],
+        )
+
+    async def test_regular_user_cannot_list_admin_tests(self):
+        regular_user = User(
+            name="Regular",
+            username="regular@example.com",
+            password=hash_password("password"),
+            role=UserRole.USER,
+        )
+
+        async with self.sessions() as db:
+            with self.assertRaises(HTTPException) as raised:
+                await list_admin_tests(db, regular_user)
+
+        self.assertEqual(raised.exception.status_code, 403)
+
+    async def test_admin_cannot_submit_but_regular_user_can(self):
+        async with self.sessions() as db:
+            admin = User(
+                name="Admin",
+                username="admin@example.com",
+                password=hash_password("password"),
+                role=UserRole.ADMIN,
+            )
+            regular_user = User(
+                name="Regular",
+                username="regular@example.com",
+                password=hash_password("password"),
+                role=UserRole.USER,
+            )
+            db.add_all([admin, regular_user])
+            await db.flush()
+            test = Test(
+                title="Submission Test",
+                description="Submission permission coverage.",
+                duration=30,
+                created_by=admin.id,
+            )
+            db.add(test)
+            await db.flush()
+            question = Question(
+                title="Submit safely",
+                description="Regular users can submit this problem.",
+                test_id=test.id,
+            )
+            db.add(question)
+            await db.commit()
+
+            payload = SubmissionCreate(
+                question_id=question.id,
+                code="print('ok')",
+                language=Language.PYTHON,
+            )
+
+            with self.assertRaises(HTTPException) as raised:
+                await code_submission(payload, db, admin)
+
+            with patch("backend.main.redis.lpush", new=AsyncMock()) as enqueue:
+                submission = await code_submission(payload, db, regular_user)
+
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(submission.user_id, regular_user.id)
+        enqueue.assert_awaited_once_with("submission_queue", submission.id)
 
     async def test_public_question_hides_hidden_cases(self):
         async with self.sessions() as db:

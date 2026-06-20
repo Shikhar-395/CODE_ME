@@ -7,11 +7,13 @@ class UserCreate(BaseModel):
     name: str = Field(min_length=3, max_length=30)
     username: str = Field(min_length=4, max_length=20)
     password: str = Field(min_length=4, max_length=72)
+    role: UserRole = UserRole.USER
 
 
 class UserLogin(BaseModel):
     username: str = Field(min_length=4, max_length=20)
     password: str = Field(min_length=4, max_length=72)
+    role: UserRole | None = None
 
 
 class UserResponse(BaseModel):

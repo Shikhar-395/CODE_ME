@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../api';
 import type { User } from '../api';
 import { getErrorMessage } from '../errors';
-import { KeyRound, Mail, User as UserIcon, AlertTriangle, Loader2, Info } from 'lucide-react';
+import { KeyRound, Mail, User as UserIcon, ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface SignupProps {
   onSignupSuccess: (user: User) => void;
@@ -12,7 +12,7 @@ export const Signup: React.FC<SignupProps> = ({ onSignupSuccess }) => {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'user' | 'admin'>('user');
+  const [role, setRole] = useState<User['role']>('user');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -30,9 +30,9 @@ export const Signup: React.FC<SignupProps> = ({ onSignupSuccess }) => {
       await api.signUp({ name, username, password, role });
       
       // Auto-login after signup
-      const loggedInUser = await api.signIn({ username, password });
+      const loggedInUser = await api.signIn({ username, password, role });
       onSignupSuccess(loggedInUser);
-      window.location.hash = '#dashboard';
+      window.location.hash = loggedInUser.role === 'admin' ? '#admin' : '#dashboard';
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Registration failed. Try another username.'));
     } finally {
@@ -57,75 +57,93 @@ export const Signup: React.FC<SignupProps> = ({ onSignupSuccess }) => {
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
-            <label className="form-label">Full Name</label>
+            <label className="form-label" htmlFor="signup-name">Full Name</label>
             <div className="input-with-icon">
               <UserIcon size={16} className="input-icon" />
               <input
+                id="signup-name"
                 type="text"
                 className="form-input"
                 placeholder="John Doe"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={loading}
+                autoComplete="name"
+                required
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Username</label>
+            <label className="form-label" htmlFor="signup-username">Username</label>
             <div className="input-with-icon">
               <Mail size={16} className="input-icon" />
               <input
+                id="signup-username"
                 type="text"
                 className="form-input"
                 placeholder="john_doe"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={loading}
+                autoComplete="username"
+                spellCheck={false}
+                required
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Password</label>
+            <label className="form-label" htmlFor="signup-password">Password</label>
             <div className="input-with-icon">
               <KeyRound size={16} className="input-icon" />
               <input
+                id="signup-password"
                 type="password"
                 className="form-input"
                 placeholder="min 4 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
+                autoComplete="new-password"
+                required
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Account Role</label>
-            <select
-              className="form-input select-input"
-              value={role}
-              onChange={(e) => setRole(e.target.value as 'user' | 'admin')}
-              disabled={loading}
-            >
-              <option value="user">User (Solver)</option>
-              <option value="admin">Admin (Test Creator)</option>
-            </select>
-            <p className="text-muted text-xs flex items-center gap-2 mt-1">
-              <Info size={12} />
-              <span>Admins can create tests, add questions and test cases.</span>
+            <label className="form-label" htmlFor="signup-role">Create account as</label>
+            <div className="input-with-icon">
+              <ShieldCheck size={16} className="input-icon" />
+              <select
+                id="signup-role"
+                className="form-input select-input"
+                value={role}
+                onChange={(e) => setRole(e.target.value as User['role'])}
+                disabled={loading}
+              >
+                <option value="user">User (Solver)</option>
+                <option value="admin">Administrator (Test Creator)</option>
+              </select>
+            </div>
+            <p className="text-muted text-xs mt-1">
+              Administrators can create tests, questions, and test cases.
             </p>
           </div>
 
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+          <button
+            type="submit"
+            className="btn btn-primary btn-block"
+            disabled={loading}
+            aria-busy={loading}
+          >
             {loading ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
                 <span>Creating Account...</span>
               </>
             ) : (
-              <span>Register & Sign In</span>
+              <span>Create {role === 'admin' ? 'Administrator' : 'User'} Account</span>
             )}
           </button>
         </form>

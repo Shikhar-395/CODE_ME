@@ -102,7 +102,7 @@ async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db)):
         name=data.name,
         username=data.username,
         password=hash_password(data.password),
-        role=UserRole.USER,
+        role=data.role,
     )
 
     db.add(user)
@@ -126,6 +126,14 @@ async def user_signin(data: UserLogin, response: Response, db: AsyncSession = De
     )
     if not password_valid:
         raise HTTPException(status_code=401, detail="Wrong credentials")
+
+    if data.role is not None and user.role != data.role:
+        actual_role = "an administrator" if user.role == UserRole.ADMIN else "a user"
+        raise HTTPException(
+            status_code=403,
+            detail=f"This account is registered as {actual_role}. Choose the correct login type.",
+        )
+
     if upgraded_hash:
         user.password = upgraded_hash
         await db.commit()
@@ -222,6 +230,12 @@ async def code_submission(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if user.role == UserRole.ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="Administrators can view problems but cannot submit solutions",
+        )
+
     question= await db.get(Question, data.question_id)
     if not question:
         raise HTTPException(
@@ -268,6 +282,26 @@ async def list_tests(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Test))
     tests = result.scalars().all()
     return tests
+
+
+@app.get("/admin/tests", response_model=list[TestWithQuestionsResponse])
+async def list_admin_tests(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator access required",
+        )
+
+    result = await db.execute(
+        select(Test)
+        .options(selectinload(Test.questions))
+        .where(Test.created_by == user.id)
+        .order_by(Test.id.desc())
+    )
+    return result.scalars().all()
 
 
 @app.get("/tests/{test_id}", response_model=TestWithQuestionsResponse)

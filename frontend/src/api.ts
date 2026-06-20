@@ -9,10 +9,13 @@ export interface User {
 export interface SignInRequest {
   username: string;
   password: string;
+  role: User['role'];
 }
 
-export interface SignUpRequest extends SignInRequest {
+export interface SignUpRequest {
   name: string;
+  username: string;
+  password: string;
   role: User['role'];
 }
 
@@ -96,6 +99,8 @@ export const api = {
 
   // Tests
   listTests: () => request<Test[]>('/tests'),
+
+  listAdminTests: () => request<TestWithQuestions[]>('/admin/tests'),
   
   getTest: (testId: number) => request<TestWithQuestions>(`/tests/${testId}`),
   

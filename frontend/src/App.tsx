@@ -5,6 +5,8 @@ import { Navbar } from './components/Navbar';
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
+import { Contests } from './pages/Contests';
+import { AdminProblems } from './pages/AdminProblems';
 import { TestDetail } from './pages/TestDetail';
 import { QuestionDetail } from './pages/QuestionDetail';
 import { AdminPanel } from './pages/AdminPanel';
@@ -35,7 +37,14 @@ function App() {
         setUser(u);
         // If logged in and on auth pages, redirect to dashboard
         if (window.location.hash === '#login' || window.location.hash === '#signup') {
-          window.location.hash = '#dashboard';
+          window.location.hash = u.role === 'admin' ? '#admin' : '#dashboard';
+        } else if (
+          u.role === 'admin' &&
+          (window.location.hash === '' ||
+            window.location.hash === '#' ||
+            window.location.hash === '#dashboard')
+        ) {
+          window.location.hash = '#admin';
         }
       } catch {
         setUser(null);
@@ -90,7 +99,10 @@ function App() {
       return { route: 'question', questionId };
     }
 
-    return { route: 'dashboard' };
+    if (cleanHash === 'contests') return { route: 'contests' };
+    if (cleanHash === 'problems') return { route: 'problems' };
+
+    return { route: user?.role === 'admin' ? 'admin' : 'dashboard' };
   };
 
   const parsed = parseRoute();
@@ -120,6 +132,10 @@ function App() {
         return <TestDetail testId={parsed.testId!} user={user} />;
       case 'question':
         return <QuestionDetail questionId={parsed.questionId!} user={user} />;
+      case 'contests':
+        return <Contests user={user} />;
+      case 'problems':
+        return <AdminProblems user={user} />;
       case 'dashboard':
       default:
         return <Dashboard user={user} />;

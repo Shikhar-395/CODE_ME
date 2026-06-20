@@ -36,9 +36,9 @@ export const TestDetail: React.FC<TestDetailProps> = ({ testId, user }) => {
   return (
     <div className="test-detail-container container fade-in">
       <div className="mb-4">
-        <a href="#dashboard" className="btn btn-secondary btn-sm">
+        <a href="#contests" className="btn btn-secondary btn-sm">
           <ArrowLeft size={16} />
-          <span>Back to Dashboard</span>
+          <span>Back to Contests</span>
         </a>
       </div>
 
@@ -69,9 +69,14 @@ export const TestDetail: React.FC<TestDetailProps> = ({ testId, user }) => {
                 <Clock size={16} className="text-muted" />
                 <span>Time Limit: <strong>{test.duration} minutes</strong></span>
               </div>
+              {user?.role === 'admin' && (
+                <div className="view-only-note text-sm">
+                  Administrator view only — solving and submissions are disabled.
+                </div>
+              )}
             </div>
 
-            {user && user.role === 'admin' && (
+            {user && user.role === 'admin' && test.created_by === user.id && (
               <div className="admin-quick-actions mt-4 pt-4 border-t">
                 <p className="text-xs text-muted mb-2 font-semibold uppercase">Admin Actions</p>
                 <a href={`#admin?test_id=${test.id}`} className="btn btn-primary btn-sm btn-block">
@@ -91,7 +96,7 @@ export const TestDetail: React.FC<TestDetailProps> = ({ testId, user }) => {
                 <Code size={40} className="text-muted mb-2" />
                 <h4>No Questions Added Yet</h4>
                 <p className="text-secondary text-sm mb-4">Questions will appear here once the creator adds them.</p>
-                {user && user.role === 'admin' && (
+                {user && user.role === 'admin' && test.created_by === user.id && (
                   <a href={`#admin?test_id=${test.id}`} className="btn btn-primary btn-sm">
                     Add first Question
                   </a>

@@ -1,7 +1,118 @@
-# Local services for testing without a manually managed DATABASE_URL.
-# API env: DATABASE_URL=postgresql+asyncpg://leetcode:leetcode@127.0.0.1:55432/leetcode
-# API env: REDIS_URL=redis://127.0.0.1:6379/0
+x-backend-environment: &backend-environment
+  DATABASE_URL: postgresql+asyncpg://leetcode:leetcode@postgres:5432/leetcode
+  REDIS_URL: redis://redis:6379/0
+  SESSION_SECRET_KEY: ${SESSION_SECRET_KEY:-change-this-dev-secret-at-least-32-bytes}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+  CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+  AUTO_SEED_DEMO_DATA: ${AUTO_SEED_DEMO_DATA:-true}
+  SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin}
+  SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin@example.com}
+  SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-this-password}
+  JUDGE_EXECUTOR: docker
+  JUDGE_DOCKER_IMAGE: leetcode-judge:latest
+  JUDGE_DOCKER_MEMORY: ${JUDGE_DOCKER_MEMORY:-512m}
+  JUDGE_DOCKER_CPUS: ${JUDGE_DOCKER_CPUS:-1.0}
+  JUDGE_DOCKER_PIDS_LIMIT: ${JUDGE_DOCKER_PIDS_LIMIT:-128}
+  JUDGE_DOCKER_TMPFS_SIZE: ${JUDGE_DOCKER_TMPFS_SIZE:-384m}
+  JUDGE_DOCKER_TIMEOUT_SECONDS: ${JUDGE_DOCKER_TIMEOUT_SECONDS:-45}
+
 services:
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "100"
+    volumes:
+      # Source changes are immediately visible to Vite inside the container.
+      - ./frontend:/app
+      # Keep Linux dependencies separate from host node_modules.
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:5173",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command:
+      - uvicorn
+      - backend.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - backend
+    ports:
+      - "8000:8000"
+    environment: *backend-environment
+    volumes:
+      - ./backend:/app/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "backend.worker"]
+    environment: *backend-environment
+    volumes:
+      - ./backend:/app/backend
+      # Required so the worker can launch isolated judge containers.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      judge-image:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Builds the sandbox image once, then exits successfully before the worker starts.
+  judge-image:
+    image: leetcode-judge:latest
+    build:
+      context: ./docker/judge
+    entrypoint: ["/bin/true"]
+
   postgres:
     image: postgres:18.3
     environment:
@@ -15,6 +126,9 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -25,3 +139,11 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  frontend_node_modules:
+  postgres_data:
+  redis_data:

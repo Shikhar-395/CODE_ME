@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Test, Question, User } from '../api';
 import { getErrorMessage } from '../errors';
-import { Plus, ShieldAlert, Award, FileQuestion, ListPlus, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Plus, ShieldAlert, FileQuestion, ListPlus, CheckCircle, AlertCircle, RefreshCw, Trophy } from 'lucide-react';
 
 interface AdminPanelProps {
   user: User | null;
@@ -44,11 +44,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
   // Initial load
   const loadInitialData = async () => {
     try {
-      const allTests = await api.listTests();
+      const allTests = await api.listAdminTests();
       setTests(allTests);
       
       // If we have an initial test ID (passed from quick-link), select it and switch to question tab
-      if (initialTestId) {
+      if (initialTestId && allTests.some((test) => test.id === initialTestId)) {
         setSelectedTestId(initialTestId);
         setTcTestId(initialTestId);
         setActiveTab('question');
@@ -64,13 +64,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
   useEffect(() => {
     let ignore = false;
 
-    api.listTests()
+    api.listAdminTests()
       .then((allTests) => {
         if (ignore) return;
 
         setTests(allTests);
 
-        if (initialTestId) {
+        if (initialTestId && allTests.some((test) => test.id === initialTestId)) {
           setSelectedTestId(initialTestId);
           setTcTestId(initialTestId);
           setActiveTab('question');
@@ -138,11 +138,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
       });
       showFeedback(`Successfully created test "${newTest.title}"!`, null);
       
-      // Reset form & reload list
+      // Reset form, select the new contest, and continue into problem creation.
       setTestTitle('');
       setTestDesc('');
       setTestDuration(60);
-      loadInitialData();
+      const allTests = await api.listAdminTests();
+      setTests(allTests);
+      setSelectedTestId(newTest.id);
+      setTcTestId(newTest.id);
+      setActiveTab('question');
     } catch (err: unknown) {
       showFeedback(null, getErrorMessage(err, 'Failed to create test.'));
     } finally {
@@ -240,10 +244,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
     <div className="admin-container container fade-in">
       <div className="admin-header flex justify-between items-center mb-6">
         <div>
-          <h1>Admin Dashboard</h1>
-          <p className="text-secondary text-sm">Configure contests, code challenges, and test cases.</p>
+          <h1>Creator Workspace</h1>
+          <p className="text-secondary text-sm">Create problems for your contests and manage their test cases.</p>
         </div>
-        <Award className="text-primary" size={32} />
       </div>
 
       {successMsg && (
@@ -263,21 +266,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
       <div className="admin-layout">
         {/* Sidebar Nav Tabs */}
         <div className="admin-tabs-sidebar card">
-          <button 
+          <button
             className={`admin-tab-link ${activeTab === 'test' ? 'active' : ''}`}
             onClick={() => setActiveTab('test')}
           >
-            <Award size={18} />
-            <span>Create Test</span>
+            <Trophy size={18} />
+            <span>Create Contest</span>
           </button>
-          
-          <button 
+
+          <button
             className={`admin-tab-link ${activeTab === 'question' ? 'active' : ''}`}
             onClick={() => setActiveTab('question')}
-            disabled={tests.length === 0}
           >
             <FileQuestion size={18} />
-            <span>Add Question</span>
+            <span>Create Problem</span>
           </button>
           
           <button 
@@ -347,153 +349,108 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
 
           {activeTab === 'question' && (
             <div className="fade-in">
-              <h3 className="mb-6" style={{ fontSize: '20px', fontWeight: '700' }}>Create New Problem</h3>
-              <form onSubmit={handleCreateQuestion} className="create-question-split">
-                {/* Left Column: Form Details */}
-                <div className="flex flex-col gap-4">
-                  <div className="form-group">
-                    <label className="form-label">Select Contest</label>
-                    <select
-                      className="form-input select-input"
-                      value={selectedTestId}
-                      onChange={e => setSelectedTestId(parseInt(e.target.value) || 0)}
-                      required
-                      disabled={loading}
-                    >
-                      <option value={0} disabled>-- Select a Contest --</option>
-                      {tests.map(t => (
-                        <option key={t.id} value={t.id}>{t.title}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Problem Title</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. Reverse Linked List III"
-                      value={qTitle}
-                      onChange={e => setQTitle(e.target.value)}
-                      required
-                      disabled={loading}
-                    />
-                  </div>
-
-                  <div className="flex gap-4">
-                    <div className="form-group" style={{ flex: 1 }}>
-                      <label className="form-label">Difficulty</label>
-                      <select className="form-input select-input" disabled style={{ background: 'var(--bg-main)', opacity: 0.8 }}>
-                        <option value="easy">Easy</option>
-                        <option value="medium">Medium</option>
-                        <option value="hard">Hard</option>
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ flex: 1 }}>
-                      <label className="form-label">Category Tags</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="e.g. dp, graph, tree"
-                        disabled
-                        style={{ background: 'var(--bg-main)', opacity: 0.8 }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Problem Description (Markdown)</label>
-                    <textarea
-                      className="form-input text-area-input"
-                      rows={8}
-                      placeholder="Write problem description here..."
-                      value={qDesc}
-                      onChange={e => setQDesc(e.target.value)}
-                      required
-                      disabled={loading}
-                      style={{ minHeight: '180px' }}
-                    />
-                  </div>
-
-                  <div className="flex gap-4 mt-2">
-                    <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => showFeedback('Draft saved successfully (mocked)!', null)}>
-                      Save Draft
-                    </button>
-                    <button type="submit" className="btn btn-primary" style={{ flex: 1, backgroundColor: 'var(--color-primary)', color: 'var(--bg-main)' }} disabled={loading || selectedTestId === 0 || !qTitle || !qDesc}>
-                      {loading ? <RefreshCw className="animate-spin" size={16} /> : null}
-                      <span>Publish</span>
-                    </button>
-                  </div>
+              {tests.length === 0 ? (
+                <div className="admin-prerequisite text-center">
+                  <FileQuestion size={48} className="text-muted mb-4 mx-auto" aria-hidden="true" />
+                  <h3>Create a contest first</h3>
+                  <p className="text-secondary mb-6">
+                    Every problem belongs to one of your contests. Create a contest, then return here to add its first problem.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setActiveTab('test')}
+                  >
+                    <Plus size={16} aria-hidden="true" />
+                    <span>Create Contest</span>
+                  </button>
                 </div>
+              ) : (
+                <>
+                  <h3 className="mb-6" style={{ fontSize: '20px', fontWeight: '700' }}>Create New Problem</h3>
+                  <form onSubmit={handleCreateQuestion} style={{ maxWidth: '800px' }}>
+                    {/* Form Details */}
+                    <div className="flex flex-col gap-4">
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="problem-contest">Select Contest</label>
+                        <select
+                          id="problem-contest"
+                          className="form-input select-input"
+                          value={selectedTestId}
+                          onChange={e => setSelectedTestId(parseInt(e.target.value) || 0)}
+                          required
+                          disabled={loading}
+                        >
+                          <option value={0} disabled>-- Select a Contest --</option>
+                          {tests.map(t => (
+                            <option key={t.id} value={t.id}>{t.title}</option>
+                          ))}
+                        </select>
+                      </div>
 
-                {/* Right Column: Test Cases */}
-                <div className="test-cases-sidebar flex flex-col gap-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 style={{ fontSize: '15px', fontWeight: '600' }}>Test Cases</h3>
-                    <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: '11px', borderColor: 'var(--border-color)' }}>
-                      + Add Case
-                    </button>
-                  </div>
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="problem-title">Problem Title</label>
+                        <input
+                          id="problem-title"
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. Reverse Linked List III"
+                          value={qTitle}
+                          onChange={e => setQTitle(e.target.value)}
+                          required
+                          disabled={loading}
+                        />
+                      </div>
 
-                  {/* Case 1: Visible */}
-                  <div className="card" style={{ padding: '16px', backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
-                    <div className="flex justify-between items-center mb-2">
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>CASE 01 <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '6px', textTransform: 'none' }}>visible</span></span>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: '10px' }}>
-                      <label className="form-label" style={{ fontSize: '10px' }}>STDIN</label>
-                      <textarea
-                        className="form-input text-area-input"
-                        rows={2}
-                        value={tc1Input}
-                        onChange={e => setTc1Input(e.target.value)}
-                        disabled={loading}
-                        style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '6px 10px' }}
-                      />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: '0' }}>
-                      <label className="form-label" style={{ fontSize: '10px' }}>EXPECTED STDOUT</label>
-                      <textarea
-                        className="form-input text-area-input"
-                        rows={1}
-                        value={tc1Output}
-                        onChange={e => setTc1Output(e.target.value)}
-                        disabled={loading}
-                        style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '6px 10px' }}
-                      />
-                    </div>
-                  </div>
+                      <div className="flex gap-4">
+                        <div className="form-group" style={{ flex: 1 }}>
+                          <label className="form-label">Difficulty</label>
+                          <select className="form-input select-input" disabled style={{ background: 'var(--bg-main)', opacity: 0.8 }}>
+                            <option value="easy">Easy</option>
+                            <option value="medium">Medium</option>
+                            <option value="hard">Hard</option>
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ flex: 1 }}>
+                          <label className="form-label">Category Tags</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="e.g. dp, graph, tree"
+                            disabled
+                            style={{ background: 'var(--bg-main)', opacity: 0.8 }}
+                          />
+                        </div>
+                      </div>
 
-                  {/* Case 2: Hidden */}
-                  <div className="card" style={{ padding: '16px', backgroundColor: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
-                    <div className="flex justify-between items-center mb-2">
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>CASE 02 <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '6px', textTransform: 'none' }}>hidden</span></span>
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="problem-description">Problem Description (Markdown)</label>
+                        <textarea
+                          id="problem-description"
+                          className="form-input text-area-input"
+                          rows={8}
+                          placeholder="Write problem description here..."
+                          value={qDesc}
+                          onChange={e => setQDesc(e.target.value)}
+                          required
+                          disabled={loading}
+                          style={{ minHeight: '180px' }}
+                        />
+                      </div>
+
+                      <div className="flex gap-2 mt-4">
+                        <button type="button" className="btn btn-secondary btn-sm" style={{ width: '110px' }} onClick={() => showFeedback('Draft saved successfully (mocked)!', null)}>
+                          <span>Save Draft</span>
+                        </button>
+                        <button type="submit" className="btn btn-primary btn-sm" style={{ width: '110px', backgroundColor: 'var(--color-primary)', color: 'var(--bg-main)' }} disabled={loading || selectedTestId === 0 || !qTitle || !qDesc}>
+                          {loading ? <RefreshCw className="animate-spin" size={14} /> : null}
+                          <span>Publish</span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="form-group" style={{ marginBottom: '10px' }}>
-                      <label className="form-label" style={{ fontSize: '10px' }}>STDIN</label>
-                      <textarea
-                        className="form-input text-area-input"
-                        rows={2}
-                        value={tc2Input}
-                        onChange={e => setTc2Input(e.target.value)}
-                        disabled={loading}
-                        style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '6px 10px' }}
-                      />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: '0' }}>
-                      <label className="form-label" style={{ fontSize: '10px' }}>EXPECTED STDOUT</label>
-                      <textarea
-                        className="form-input text-area-input"
-                        rows={1}
-                        value={tc2Output}
-                        onChange={e => setTc2Output(e.target.value)}
-                        disabled={loading}
-                        style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '6px 10px' }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </form>
+                  </form>
+                </>
+              )}
             </div>
           )}
 
