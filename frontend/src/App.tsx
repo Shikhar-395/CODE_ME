@@ -11,7 +11,6 @@ import { TestDetail } from './pages/TestDetail';
 import { QuestionDetail } from './pages/QuestionDetail';
 import { AdminPanel } from './pages/AdminPanel';
 import { Submissions } from './pages/Submissions';
-import { Loader2 } from 'lucide-react';
 
 function useHashRoute() {
   const [hash, setHash] = useState(window.location.hash);
@@ -68,9 +67,9 @@ function App() {
 
   if (checkingAuth) {
     return (
-      <div className="flex flex-col justify-center items-center h-screen bg-main gap-4">
-        <Loader2 className="animate-spin text-primary" size={48} />
-        <p className="text-secondary text-sm">Securing your workspace connection...</p>
+      <div className="flex flex-col justify-center items-center h-screen bg-main gap-6">
+        <div className="premium-spinner lg" />
+        <p className="text-secondary text-sm font-semibold tracking-wide">Securing your workspace connection...</p>
       </div>
     );
   }

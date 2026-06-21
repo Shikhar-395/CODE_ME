@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { TestWithQuestions, Question, User } from '../api';
 import { getErrorMessage } from '../errors';
-import { Plus, ShieldAlert, FileQuestion, ListPlus, CheckCircle, AlertCircle, RefreshCw, Trophy } from 'lucide-react';
+import { Plus, ShieldAlert, FileQuestion, ListPlus, CheckCircle, AlertCircle, Trophy } from 'lucide-react';
 
 interface AdminPanelProps {
   user: User | null;
@@ -309,7 +309,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
                 </div>
 
                 <button type="submit" className="btn btn-primary" disabled={loading || !testTitle || !testDesc}>
-                  {loading ? <RefreshCw className="animate-spin" size={16} /> : <Plus size={16} />}
+                  {loading ? <div className="premium-spinner sm" /> : <Plus size={16} />}
                   <span>Create Contest</span>
                 </button>
               </form>
@@ -418,7 +418,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
                           <span>Save Draft</span>
                         </button>
                         <button type="submit" className="btn btn-primary btn-sm" style={{ width: '110px', backgroundColor: 'var(--color-primary)', color: 'var(--bg-main)' }} disabled={loading || selectedTestId === 0 || !qTitle || !qDesc}>
-                          {loading ? <RefreshCw className="animate-spin" size={14} /> : null}
+                          {loading ? <div className="premium-spinner sm" /> : null}
                           <span>Publish</span>
                         </button>
                       </div>
@@ -525,7 +525,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
                 </div>
 
                 <button type="submit" className="btn btn-primary" disabled={loading || selectedQId === 0 || !tcInput || !tcOutput}>
-                  {loading ? <RefreshCw className="animate-spin" size={16} /> : <Plus size={16} />}
+                  {loading ? <div className="premium-spinner sm" /> : <Plus size={16} />}
                   <span>Add Test Case</span>
                 </button>
               </form>

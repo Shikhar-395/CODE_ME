@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../api';
 import type { User } from '../api';
 import { getErrorMessage } from '../errors';
-import { KeyRound, Mail, ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
+import { KeyRound, Mail, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 interface LoginProps {
   onLoginSuccess: (user: User) => void;
@@ -115,7 +115,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           >
             {loading ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <div className="premium-spinner sm" />
                 <span>Signing In...</span>
               </>
             ) : (

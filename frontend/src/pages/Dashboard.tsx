@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Question, User } from '../api';
 import { getErrorMessage } from '../errors';
-import { Plus, AlertCircle, RefreshCw, Play, Search } from 'lucide-react';
+import { Plus, AlertCircle, Play, Search } from 'lucide-react';
 
 interface DashboardProps {
   user: User | null;
@@ -105,8 +105,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
       )}
 
       {loading && (
-        <div className="flex justify-center items-center py-12">
-          <RefreshCw size={36} className="animate-spin text-muted" />
+        <div className="flex justify-center items-center py-16">
+          <div className="premium-spinner" />
         </div>
       )}
 

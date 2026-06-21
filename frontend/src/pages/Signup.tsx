@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../api';
 import type { User } from '../api';
 import { getErrorMessage } from '../errors';
-import { KeyRound, Mail, User as UserIcon, ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
+import { KeyRound, Mail, User as UserIcon, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 interface SignupProps {
   onSignupSuccess: (user: User) => void;
@@ -139,7 +139,7 @@ export const Signup: React.FC<SignupProps> = ({ onSignupSuccess }) => {
           >
             {loading ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <div className="premium-spinner sm" />
                 <span>Creating Account...</span>
               </>
             ) : (

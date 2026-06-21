@@ -11,7 +11,6 @@ import {
   Code,
   LockKeyhole,
   Play,
-  RefreshCw,
   Trophy,
 } from 'lucide-react';
 
@@ -186,7 +185,7 @@ export const TestDetail: React.FC<TestDetailProps> = ({ testId, user }) => {
                   disabled={actionLoading}
                   aria-busy={actionLoading}
                 >
-                  {actionLoading ? <RefreshCw size={16} className="animate-spin" aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+                  {actionLoading ? <div className="premium-spinner sm" aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
                   Start contest
                 </button>
               </div>

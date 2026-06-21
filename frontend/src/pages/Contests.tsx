@@ -3,7 +3,7 @@ import { api } from '../api';
 import type { Test, User } from '../api';
 import { getErrorMessage } from '../errors';
 import { useContestCountdown } from '../contestTime';
-import { AlertCircle, BookOpen, Clock, Play, RefreshCw } from 'lucide-react';
+import { AlertCircle, BookOpen, Clock, Play } from 'lucide-react';
 
 interface ContestsProps {
   user: User | null;
@@ -41,7 +41,7 @@ const ContestCard: React.FC<ContestCardProps> = ({
           disabled={starting}
           aria-busy={starting}
         >
-          {starting ? <RefreshCw size={16} className="animate-spin" aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+          {starting ? <div className="premium-spinner sm" aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
           Start
         </button>
       );

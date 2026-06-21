@@ -6,7 +6,6 @@ import {
   CheckCircle,
   Clock,
   Eye,
-  RefreshCw,
   XCircle,
 } from 'lucide-react';
 import { api } from '../api';
@@ -394,11 +393,11 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId, user
             </div>
             <div className="editor-actions">
               <button type="button" className="btn btn-secondary" onClick={() => void execute('run')} disabled={executing || !code.trim()}>
-                {executing && executionKind === 'run' && <RefreshCw size={15} className="animate-spin" aria-hidden="true" />}
+                {executing && executionKind === 'run' && <div className="premium-spinner sm" aria-hidden="true" />}
                 Run examples
               </button>
               <button type="button" className="btn btn-primary" onClick={() => void execute('submit')} disabled={executing || !code.trim()}>
-                {executing && executionKind === 'submit' && <RefreshCw size={15} className="animate-spin" aria-hidden="true" />}
+                {executing && executionKind === 'submit' && <div className="premium-spinner sm" aria-hidden="true" />}
                 Submit
               </button>
             </div>
@@ -433,7 +432,7 @@ export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId, user
             <div className="console-content">
               {!executionStatus && <p className="console-placeholder">Run the public examples or submit against the full test suite.</p>}
               {['pending', 'running'].includes(executionStatus || '') && (
-                <div className="judge-progress"><RefreshCw size={16} className="animate-spin" aria-hidden="true" /> Judging in the isolated runner…</div>
+                <div className="judge-progress" style={{ gap: '10px' }}><div className="premium-spinner sm" aria-hidden="true" /> Judging in the isolated runner…</div>
               )}
               {executionStatus === 'accepted' && (
                 <div className="result-alert result-success">
