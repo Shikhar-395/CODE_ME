@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { Test, Question, User } from '../api';
+import type { TestWithQuestions, Question, User } from '../api';
 import { getErrorMessage } from '../errors';
 import { Plus, ShieldAlert, FileQuestion, ListPlus, CheckCircle, AlertCircle, RefreshCw, Trophy } from 'lucide-react';
 
@@ -13,8 +13,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
   const [activeTab, setActiveTab] = useState<'test' | 'question' | 'testcase'>('test');
   
   // Data lists
-  const [tests, setTests] = useState<Test[]>([]);
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [tests, setTests] = useState<TestWithQuestions[]>([]);
   
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -29,6 +28,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
   const [selectedTestId, setSelectedTestId] = useState<number>(0);
   const [qTitle, setQTitle] = useState('');
   const [qDesc, setQDesc] = useState('');
+  const [qDifficulty, setQDifficulty] = useState<Question['difficulty']>('easy');
   const [tc1Input, setTc1Input] = useState('5\n1 2 3 4 5\n3');
   const [tc1Output, setTc1Output] = useState('3');
   const [tc2Input, setTc2Input] = useState('0\n0');
@@ -42,25 +42,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
   const [tcHidden, setTcHidden] = useState(true);
 
   // Initial load
-  const loadInitialData = async () => {
-    try {
-      const allTests = await api.listAdminTests();
-      setTests(allTests);
-      
-      // If we have an initial test ID (passed from quick-link), select it and switch to question tab
-      if (initialTestId && allTests.some((test) => test.id === initialTestId)) {
-        setSelectedTestId(initialTestId);
-        setTcTestId(initialTestId);
-        setActiveTab('question');
-      } else if (allTests.length > 0) {
-        setSelectedTestId(allTests[0].id);
-        setTcTestId(allTests[0].id);
-      }
-    } catch (err) {
-      console.error('Failed to load admin lists', err);
-    }
-  };
-
   useEffect(() => {
     let ignore = false;
 
@@ -73,10 +54,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
         if (initialTestId && allTests.some((test) => test.id === initialTestId)) {
           setSelectedTestId(initialTestId);
           setTcTestId(initialTestId);
+          setSelectedQId(
+            allTests.find((test) => test.id === initialTestId)?.questions[0]?.id || 0,
+          );
           setActiveTab('question');
         } else if (allTests.length > 0) {
           setSelectedTestId(allTests[0].id);
           setTcTestId(allTests[0].id);
+          setSelectedQId(allTests[0].questions[0]?.id || 0);
         }
       })
       .catch((err) => console.error('Failed to load admin lists', err));
@@ -86,34 +71,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
     };
   }, [initialTestId]);
 
-  // Load questions when test selection changes for Test Case creation
-  useEffect(() => {
-    let ignore = false;
-
-    if (tcTestId) {
-      api.getTest(tcTestId).then(data => {
-        if (ignore) return;
-
-        setQuestions(data.questions || []);
-        if (data.questions && data.questions.length > 0) {
-          setSelectedQId(data.questions[0].id);
-        } else {
-          setSelectedQId(0);
-        }
-      }).catch(err => console.error(err));
-    } else {
-      Promise.resolve().then(() => {
-        if (ignore) return;
-
-        setQuestions([]);
-        setSelectedQId(0);
-      });
-    }
-
-    return () => {
-      ignore = true;
-    };
-  }, [tcTestId]);
+  const questions = tests.find((test) => test.id === tcTestId)?.questions || [];
 
   const showFeedback = (success: string | null, error: string | null) => {
     setSuccessMsg(success);
@@ -146,6 +104,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
       setTests(allTests);
       setSelectedTestId(newTest.id);
       setTcTestId(newTest.id);
+      setSelectedQId(0);
       setActiveTab('question');
     } catch (err: unknown) {
       showFeedback(null, getErrorMessage(err, 'Failed to create test.'));
@@ -163,7 +122,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
       const newQ = await api.createQuestion({
         test_id: selectedTestId,
         title: qTitle,
-        description: qDesc
+        description: qDesc,
+        difficulty: qDifficulty,
       });
       
       // Submit visible test case
@@ -191,11 +151,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
       // Reset form
       setQTitle('');
       setQDesc('');
+      setQDifficulty('easy');
       setTc1Input('5\n1 2 3 4 5\n3');
       setTc1Output('3');
       setTc2Input('0\n0');
       setTc2Output('-1');
-      loadInitialData(); // reload tests to ensure we get questions refreshed
+      const allTests = await api.listAdminTests();
+      setTests(allTests);
+      setTcTestId(selectedTestId);
+      setSelectedQId(newQ.id);
+      setActiveTab('testcase');
     } catch (err: unknown) {
       showFeedback(null, getErrorMessage(err, 'Failed to create question.'));
     } finally {
@@ -300,8 +265,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
               <h3 className="mb-4">Create New Contest</h3>
               <form onSubmit={handleCreateTest}>
                 <div className="form-group">
-                  <label className="form-label">Contest Title</label>
+                  <label className="form-label" htmlFor="contest-title">Contest Title</label>
                   <input
+                    id="contest-title"
                     type="text"
                     className="form-input"
                     placeholder="e.g. Dynamic Programming Warmup"
@@ -313,8 +279,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Description</label>
+                  <label className="form-label" htmlFor="contest-description">Description</label>
                   <textarea
+                    id="contest-description"
                     className="form-input text-area-input"
                     rows={4}
                     placeholder="e.g. A contest containing fundamental DP algorithms challenges."
@@ -326,14 +293,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Duration (in minutes)</label>
+                  <label className="form-label" htmlFor="contest-duration">Duration (in minutes)</label>
                   <input
-                    type="number"
+                    id="contest-duration"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     className="form-input"
                     placeholder="60"
                     value={testDuration}
-                    onChange={e => setTestDuration(parseInt(e.target.value) || 0)}
-                    min={1}
+                    onChange={e => setTestDuration(Number.parseInt(e.target.value, 10) || 0)}
                     required
                     disabled={loading}
                   />
@@ -404,8 +373,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
 
                       <div className="flex gap-4">
                         <div className="form-group" style={{ flex: 1 }}>
-                          <label className="form-label">Difficulty</label>
-                          <select className="form-input select-input" disabled style={{ background: 'var(--bg-main)', opacity: 0.8 }}>
+                          <label className="form-label" htmlFor="problem-difficulty">Difficulty</label>
+                          <select
+                            id="problem-difficulty"
+                            className="form-input select-input"
+                            value={qDifficulty}
+                            onChange={(event) => setQDifficulty(event.target.value as Question['difficulty'])}
+                            disabled={loading}
+                          >
                             <option value="easy">Easy</option>
                             <option value="medium">Medium</option>
                             <option value="hard">Hard</option>
@@ -459,11 +434,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
               <h3 className="mb-4">Add Test Case to Problem</h3>
               <form onSubmit={handleAddTestCase}>
                 <div className="form-group">
-                  <label className="form-label">Select Contest</label>
+                  <label className="form-label" htmlFor="testcase-contest">Select Contest</label>
                   <select
+                    id="testcase-contest"
                     className="form-input select-input"
                     value={tcTestId}
-                    onChange={e => setTcTestId(parseInt(e.target.value) || 0)}
+                    onChange={(event) => {
+                      const nextTestId = Number.parseInt(event.target.value, 10) || 0;
+                      const nextQuestions = tests.find((test) => test.id === nextTestId)?.questions || [];
+                      setTcTestId(nextTestId);
+                      setSelectedQId(nextQuestions[0]?.id || 0);
+                    }}
                     required
                     disabled={loading}
                   >
@@ -475,16 +456,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Select Problem</label>
+                  <label className="form-label" htmlFor="testcase-problem">Select Problem</label>
                   <select
+                    id="testcase-problem"
                     className="form-input select-input"
                     value={selectedQId}
-                    onChange={e => setSelectedQId(parseInt(e.target.value) || 0)}
+                    onChange={event => setSelectedQId(Number.parseInt(event.target.value, 10) || 0)}
                     required
                     disabled={loading || questions.length === 0}
                   >
                     {questions.length === 0 ? (
-                      <option value={0}>-- No Problems in this Contest --</option>
+                      <option value={0}>-- No problems in this contest --</option>
                     ) : (
                       <>
                         <option value={0} disabled>-- Select a Problem --</option>
@@ -494,11 +476,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
                       </>
                     )}
                   </select>
+                  {questions.length === 0 && (
+                    <p className="text-muted text-xs mt-1">
+                      Create a problem in this contest before adding test cases.
+                    </p>
+                  )}
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Standard Input Data</label>
+                  <label className="form-label" htmlFor="testcase-input">Standard Input Data</label>
                   <textarea
+                    id="testcase-input"
                     className="form-input text-area-input"
                     rows={3}
                     placeholder="e.g. 2 7 11 15&#10;9"
@@ -510,8 +498,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ user, initialTestId }) =
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Expected Standard Output Data</label>
+                  <label className="form-label" htmlFor="testcase-output">Expected Standard Output Data</label>
                   <textarea
+                    id="testcase-output"
                     className="form-input text-area-input"
                     rows={3}
                     placeholder="e.g. 0 1"

@@ -166,7 +166,12 @@ export const api = {
   // Questions
   getQuestion: (questionId: number) => request<QuestionDetail>(`/questions/${questionId}`),
   
-  createQuestion: (data: { test_id: number; title: string; description: string }) => request<Question>('/create-question', {
+  createQuestion: (data: {
+    test_id: number;
+    title: string;
+    description: string;
+    difficulty: Question['difficulty'];
+  }) => request<Question>('/create-question', {
     method: 'POST',
     body: JSON.stringify(data),
   }),
