@@ -105,8 +105,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
       )}
 
       {loading && (
-        <div className="flex justify-center items-center py-16">
-          <div className="premium-spinner" />
+        <div className="problems-table-container" aria-busy="true" aria-label="Loading problems">
+          <div className="problems-table-header">
+            <div className="skeleton skeleton-input" />
+          </div>
+          <div className="problem-list-skeleton">
+            {Array.from({ length: 5 }, (_, index) => (
+              <div className="skeleton skeleton-row" key={index} />
+            ))}
+          </div>
         </div>
       )}
 
