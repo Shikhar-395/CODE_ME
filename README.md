@@ -2,6 +2,8 @@
 
 CODE_ME is a full-stack coding assessment platform inspired by LeetCode. Users can browse programming tests, solve questions in a browser-based code editor, and receive real-time submission results. Administrators can create tests, questions, and public or hidden test cases.
 
+![CODE_ME Contest Room](docs/images/contest_room.png)
+
 ## Features
 
 - User signup, login, and secure cookie-based sessions
