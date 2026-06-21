@@ -1,532 +1,457 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { api } from '../api';
-import type { QuestionDetail as QuestionDetailType, Test, User } from '../api';
-import { getErrorMessage } from '../errors';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { ArrowLeft, RefreshCw, AlertCircle, CheckCircle, XCircle, Eye, Clock } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle,
+  Clock,
+  Eye,
+  RefreshCw,
+  XCircle,
+} from 'lucide-react';
+import { api } from '../api';
+import type { QuestionDetail as QuestionDetailType, Submission, User } from '../api';
+import { useContestCountdown } from '../contestTime';
+import { getErrorMessage } from '../errors';
 
 interface QuestionDetailProps {
   questionId: number;
   user: User | null;
 }
 
-type SupportedLanguage = 'cpp' | 'python' | 'java' | 'javascript';
+type SupportedLanguage = Submission['language'];
+type ExecutionKind = 'run' | 'submit';
 
-const BOILERPLATE: Record<string, string> = {
-  python: `# Write your Python 3 solution here
-import sys
+const BOILERPLATE: Record<SupportedLanguage, string> = {
+  python: `import sys
 
 def solve():
-    # Read all input from standard input
-    input_data = sys.stdin.read().split()
-    if not input_data:
-        return
-    
-    # Example logic:
-    # print(input_data)
-    pass
+    data = sys.stdin.read().split()
+    # Write your solution here.
 
 if __name__ == "__main__":
-    solve()`,
-  javascript: `// Write your JavaScript (Node.js) solution here
-const fs = require('fs');
+    solve()
+`,
+  javascript: `const fs = require('fs');
+const input = fs.readFileSync(0, 'utf8').trim().split(/\\s+/);
 
 function solve() {
-    const input = fs.readFileSync(0, 'utf-8').trim();
-    if (!input) return;
-    
-    // Example logic:
-    // console.log(input);
+  // Write your solution here.
 }
 
-solve();`,
-  cpp: `// Write your C++ solution here
-#include <iostream>
-#include <string>
-#include <vector>
-
+solve();
+`,
+  cpp: `#include <bits/stdc++.h>
 using namespace std;
 
 int main() {
-    // Fast I/O
-    ios_base::sync_with_stdio(false);
-    cin.tie(NULL);
-    
-    // Read your input and solve
-    
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    // Write your solution here.
     return 0;
-}`,
-  java: `// Write your Java solution here
+}
+`,
+  java: `import java.io.*;
 import java.util.*;
-import java.io.*;
 
 public class Main {
-    public static void main(String[] args) {
-        Scanner in = new Scanner(System.in);
-        // Solve your challenge here
+    public static void main(String[] args) throws Exception {
+        Scanner input = new Scanner(System.in);
+        // Write your solution here.
     }
-}`
+}
+`,
 };
+
+const FINAL_STATUSES: Submission['status'][] = [
+  'accepted',
+  'wrong_answer',
+  'tle',
+  'compile_error',
+  'runtime_error',
+];
+
+const editorKey = (questionId: number, language: SupportedLanguage) =>
+  `code-me:${questionId}:${language}`;
 
 export const QuestionDetail: React.FC<QuestionDetailProps> = ({ questionId, user }) => {
   const [question, setQuestion] = useState<QuestionDetailType | null>(null);
-  const [contest, setContest] = useState<Test | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Editor state
   const [language, setLanguage] = useState<SupportedLanguage>('python');
-  const [code, setCode] = useState(BOILERPLATE.python);
-  
-  // Submission flow state
-  const [submitting, setSubmitting] = useState(false);
-  const [submissionStatus, setSubmissionStatus] = useState<string | null>(null);
+  const [code, setCode] = useState(() => localStorage.getItem(editorKey(questionId, 'python')) || BOILERPLATE.python);
+  const [executing, setExecuting] = useState(false);
+  const [executionKind, setExecutionKind] = useState<ExecutionKind | null>(null);
+  const [executionStatus, setExecutionStatus] = useState<Submission['status'] | null>(null);
+  const [executedAt, setExecutedAt] = useState<Date | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const pollRef = useRef<number | null>(null);
+  const executionKindRef = useRef<ExecutionKind | null>(null);
+  const executionActiveRef = useRef(false);
+
+  const clearConnections = useCallback(() => {
+    wsRef.current?.close();
+    wsRef.current = null;
+    if (pollRef.current !== null) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const loadQuestion = useCallback(async () => {
+    setError(null);
+    try {
+      setQuestion(await api.getQuestion(questionId));
+    } catch (err: unknown) {
+      setQuestion(null);
+      setError(getErrorMessage(err, 'Could not open this problem.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [questionId]);
 
   useEffect(() => {
-    let ignore = false;
-
-    const loadQuestion = async () => {
+    const frame = window.requestAnimationFrame(() => {
       setLoading(true);
-      setError(null);
+      void loadQuestion();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      clearConnections();
+    };
+  }, [clearConnections, loadQuestion]);
 
+  useEffect(() => {
+    localStorage.setItem(editorKey(questionId, language), code);
+  }, [code, language, questionId]);
+
+  useEffect(() => {
+    const sync = () => void loadQuestion();
+    window.addEventListener('focus', sync);
+    const interval = window.setInterval(sync, 30_000);
+    return () => {
+      window.removeEventListener('focus', sync);
+      window.clearInterval(interval);
+    };
+  }, [loadQuestion]);
+
+  const handleExpire = useCallback(() => {
+    void loadQuestion();
+  }, [loadQuestion]);
+  const countdown = useContestCountdown(question?.attempt, handleExpire);
+
+  const changeLanguage = (next: SupportedLanguage) => {
+    setLanguage(next);
+    setCode(localStorage.getItem(editorKey(questionId, next)) || BOILERPLATE[next]);
+  };
+
+  const finishExecution = useCallback((status: Submission['status']) => {
+    setExecutionStatus(status);
+    if (FINAL_STATUSES.includes(status)) {
+      setExecuting(false);
+      executionActiveRef.current = false;
+      setExecutedAt(new Date());
+      clearConnections();
+      if (executionKindRef.current === 'submit') {
+        void loadQuestion();
+      }
+    }
+  }, [clearConnections, loadQuestion]);
+
+  const pollStatus = useCallback((submissionId: number) => {
+    if (pollRef.current !== null) return;
+    let attempts = 0;
+    pollRef.current = window.setInterval(async () => {
+      attempts += 1;
       try {
-        const data = await api.getQuestion(questionId);
-        const contestData = user?.role === 'admin'
-          ? await api.getTest(data.test_id)
-          : null;
-
-        if (!ignore) {
-          setQuestion(data);
-          setContest(contestData);
+        const submission = await api.getSubmission(submissionId);
+        finishExecution(submission.status);
+        if (FINAL_STATUSES.includes(submission.status) || attempts >= 30) {
+          if (pollRef.current !== null) window.clearInterval(pollRef.current);
+          pollRef.current = null;
+          if (attempts >= 30 && !FINAL_STATUSES.includes(submission.status)) {
+            setExecuting(false);
+            executionActiveRef.current = false;
+            setError('Judging is taking longer than expected. Check Submissions for the final result.');
+          }
         }
       } catch (err: unknown) {
-        if (!ignore) setError(getErrorMessage(err, 'Failed to load question details.'));
-      } finally {
-        if (!ignore) setLoading(false);
+        if (pollRef.current !== null) window.clearInterval(pollRef.current);
+        pollRef.current = null;
+        setExecuting(false);
+        executionActiveRef.current = false;
+        setError(getErrorMessage(err, 'Could not retrieve the judge result.'));
       }
-    };
+    }, 1_000);
+  }, [finishExecution]);
 
-    loadQuestion();
-    
-    // Clean up websocket connection on unmount
-    return () => {
-      ignore = true;
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [questionId, user?.role]);
+  const followSubmission = useCallback((submission: Submission) => {
+    const socket = new WebSocket(api.getWebSocketUrl(submission.id));
+    wsRef.current = socket;
+    let receivedStatus = false;
+    const fallback = window.setTimeout(() => {
+      if (!receivedStatus) pollStatus(submission.id);
+    }, 2_000);
 
-  // Handle changing language and updating boilerplate
-  const handleLanguageChange = (lang: SupportedLanguage) => {
-    // Warn if user has edited code
-    if (code !== BOILERPLATE[language] && !window.confirm('Change language? Your current code for this language will be reset.')) {
-      return;
-    }
-    setLanguage(lang);
-    setCode(BOILERPLATE[lang]);
-  };
-
-  const handleEditorChange = (value: string | undefined) => {
-    if (value !== undefined) {
-      setCode(value);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!code.trim()) return;
-    
-    setSubmitting(true);
-    setSubmissionStatus('pending');
-    setError(null);
-    
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-
-    try {
-      // Create submission
-      const sub = await api.submitCode({
-        question_id: questionId,
-        code,
-        language
-      });
-      
-      // Establish WebSocket connection for real-time status updates
-      const wsUrl = api.getWebSocketUrl(sub.id);
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('Judger WebSocket connected');
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.submission_id === sub.id) {
-            setSubmissionStatus(payload.status);
-            
-            // If the status is final, close the socket
-            const isFinalStatus = ['accepted', 'wrong_answer', 'tle', 'compile_error', 'runtime_error'].includes(payload.status);
-            if (isFinalStatus) {
-              setSubmitting(false);
-              ws.close();
-            }
-          }
-        } catch (e) {
-          console.error('Failed to parse WebSocket message', e);
-        }
-      };
-
-      ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
-        // Fallback: poll API for status
-        pollStatus(sub.id);
-      };
-
-      ws.onclose = () => {
-        console.log('Judger WebSocket closed');
-      };
-
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Submission failed.'));
-      setSubmissionStatus(null);
-      setSubmitting(false);
-    }
-  };
-
-  // Fallback Polling if WS fails
-  const pollStatus = async (subId: number) => {
-    let attempts = 0;
-    const interval = setInterval(async () => {
-      attempts++;
+    socket.onmessage = (event) => {
       try {
-        const sub = await api.getSubmission(subId);
-        setSubmissionStatus(sub.status);
-        
-        const isFinalStatus = ['accepted', 'wrong_answer', 'tle', 'compile_error', 'runtime_error'].includes(sub.status);
-        if (isFinalStatus || attempts > 15) {
-          clearInterval(interval);
-          setSubmitting(false);
+        const payload = JSON.parse(event.data) as { submission_id: number; status: Submission['status'] };
+        if (payload.submission_id === submission.id) {
+          receivedStatus = true;
+          window.clearTimeout(fallback);
+          finishExecution(payload.status);
         }
-      } catch (err) {
-        console.error('Polling error', err);
-        clearInterval(interval);
-        setSubmitting(false);
+      } catch {
+        pollStatus(submission.id);
       }
-    }, 2000);
+    };
+    socket.onerror = () => {
+      window.clearTimeout(fallback);
+      pollStatus(submission.id);
+    };
+    socket.onclose = () => {
+      window.clearTimeout(fallback);
+      if (executionActiveRef.current && !receivedStatus) pollStatus(submission.id);
+    };
+  }, [finishExecution, pollStatus]);
+
+  const execute = async (kind: ExecutionKind) => {
+    if (!code.trim() || executing) return;
+    clearConnections();
+    setExecuting(true);
+    executionActiveRef.current = true;
+    setExecutionKind(kind);
+    executionKindRef.current = kind;
+    setExecutionStatus('pending');
+    setExecutedAt(null);
+    setError(null);
+    try {
+      const payload = { question_id: questionId, code, language };
+      const submission = kind === 'run'
+        ? await api.runCode(payload)
+        : await api.submitCode(payload);
+      followSubmission(submission);
+    } catch (err: unknown) {
+      setExecutionStatus(null);
+      setExecuting(false);
+      executionActiveRef.current = false;
+      setError(getErrorMessage(err, kind === 'run' ? 'Run failed.' : 'Submission failed.'));
+      await loadQuestion();
+    }
   };
 
-  const getStatusText = (status: string | null) => {
-    if (!status) return 'Idle';
-    return status.replace('_', ' ').toUpperCase();
-  };
+  const statusLabel = executionStatus?.replaceAll('_', ' ') || '';
+  const exampleCases = question?.test_cases || [];
 
-  const getStatusClass = (status: string | null) => {
-    if (!status) return 'status-idle';
-    return `status-${status}`;
-  };
+  if (loading) {
+    return (
+      <div className="workspace-container">
+        <div className="workspace-loading" aria-label="Loading problem" aria-busy="true">
+          <div className="skeleton skeleton-title" />
+          <div className="skeleton skeleton-copy" />
+          <div className="skeleton workspace-skeleton" />
+        </div>
+      </div>
+    );
+  }
 
-  // Filter example cases (non-hidden cases)
-  const exampleTestCases = question?.test_cases.filter(tc => !tc.is_hidden) || [];
+  if (error && !question) {
+    return (
+      <div className="container problem-gate">
+        <div className="card empty-state">
+          <AlertCircle size={40} className="text-muted mb-4" aria-hidden="true" />
+          <h1>Problem locked</h1>
+          <p className="text-secondary">{error}</p>
+          <a href="#contests" className="btn btn-primary mt-4">Go to contests</a>
+        </div>
+      </div>
+    );
+  }
 
-  const getQuestionDifficulty = (q: QuestionDetailType | null) => {
-    if (!q) return 'EASY';
-    const title = q.title.toLowerCase();
-    if (title.includes('two sum') || title.includes('easy') || q.id % 3 === 0) return 'EASY';
-    if (title.includes('median') || title.includes('hard') || q.id % 3 === 2) return 'HARD';
-    return 'MEDIUM';
-  };
+  if (!question) return null;
+
+  if (user?.role === 'admin') {
+    return (
+      <div className="admin-problem-detail container">
+        <div className="admin-problem-toolbar">
+          <a href={`#test/${question.test_id}`} className="btn btn-secondary">
+            <ArrowLeft size={16} aria-hidden="true" /> Back to contest
+          </a>
+          <div className="view-only-badge"><Eye size={16} aria-hidden="true" /> View only</div>
+        </div>
+        <article className="admin-problem-statement card">
+          <header className="admin-problem-statement-header">
+            <div>
+              <p className="eyebrow">Problem #{question.id}</p>
+              <h1>{question.title}</h1>
+              <div className="admin-problem-meta">
+                <span>{question.contest_title}</span>
+                <span className={`problem-difficulty-badge ${question.difficulty}`}>{question.difficulty}</span>
+              </div>
+            </div>
+            <div className="view-only-callout">
+              <Eye size={20} aria-hidden="true" />
+              <div><strong>Administrator preview</strong><p>Review the statement and public cases without executing code.</p></div>
+            </div>
+          </header>
+          <section className="statement-section">
+            <h2>Description</h2>
+            <div className="question-content-html"><p>{question.description}</p></div>
+          </section>
+          <section className="statement-section">
+            <h2>Example cases</h2>
+            <div className="admin-example-grid">
+              {exampleCases.map((testCase, index) => (
+                <div className="example-case card" key={testCase.id}>
+                  <h3>Example {index + 1}</h3>
+                  <div className="io-block"><span className="io-label">Input</span><pre>{testCase.input_data}</pre></div>
+                  <div className="io-block"><span className="io-label">Expected output</span><pre>{testCase.output_data}</pre></div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </article>
+      </div>
+    );
+  }
 
   return (
     <div className="workspace-container fade-in">
-      {loading && (
-        <div className="flex justify-center items-center h-96">
-          <RefreshCw size={36} className="animate-spin text-muted" />
-        </div>
-      )}
+      <div className="workspace-mode-bar">
+        <a href={`#test/${question.test_id}`} className="workspace-back" aria-label="Back to contest">
+          <ArrowLeft size={16} aria-hidden="true" />
+        </a>
+        <span className={`attempt-state attempt-${question.attempt?.status || 'completed'}`}>
+          {question.access_state === 'timed' ? 'timed attempt' : 'practice mode'}
+        </span>
+        {question.access_state === 'timed' && (
+          <div className="workspace-timer" aria-live="polite">
+            <Clock size={15} aria-hidden="true" />
+            <strong>{countdown.formatted}</strong>
+          </div>
+        )}
+        <span className="workspace-contest-name">{question.contest_title}</span>
+      </div>
 
       {error && (
-        <div className="alert alert-error m-6">
-          <AlertCircle size={20} />
-          <div>
-            <h3>Error loading workspace</h3>
-            <p className="text-sm">{error}</p>
-          </div>
+        <div className="workspace-inline-error" role="alert">
+          <AlertCircle size={16} aria-hidden="true" />
+          <span>{error}</span>
+          <button type="button" onClick={() => setError(null)} aria-label="Dismiss error">×</button>
         </div>
       )}
 
-      {!loading && !error && question && user?.role === 'admin' && (
-        <div className="admin-problem-detail container">
-          <div className="admin-problem-toolbar">
-            <a href={`#test/${question.test_id}`} className="btn btn-secondary btn-sm">
-              <ArrowLeft size={16} aria-hidden="true" />
-              <span>Back to Contest</span>
-            </a>
-            <div className="view-only-badge">
-              <Eye size={15} aria-hidden="true" />
-              <span>View only</span>
+      <div className="workspace-body">
+        <section className="workspace-panel description-panel" aria-labelledby="problem-title">
+          <header className="panel-header problem-panel-heading">
+            <div>
+              <p className="eyebrow">Problem {question.id}</p>
+              <h1 id="problem-title">{question.title}</h1>
             </div>
+            <span className={`problem-difficulty-badge ${question.difficulty}`}>{question.difficulty}</span>
+          </header>
+          <div className="panel-content scrollable">
+            <div className="question-content-html"><p>{question.description}</p></div>
+            <section className="example-cases-container">
+              <h2>Examples</h2>
+              {exampleCases.length === 0 ? (
+                <div className="statement-empty">No public examples are available.</div>
+              ) : exampleCases.map((testCase, index) => (
+                <div key={testCase.id} className="example-case card">
+                  <h3>Example {index + 1}</h3>
+                  <div className="io-block"><span className="io-label">Input</span><pre>{testCase.input_data}</pre></div>
+                  <div className="io-block"><span className="io-label">Output</span><pre>{testCase.output_data}</pre></div>
+                </div>
+              ))}
+            </section>
+          </div>
+        </section>
+
+        <section className="workspace-panel editor-panel" aria-label="Code editor">
+          <header className="panel-header editor-toolbar">
+            <div className="editor-language-controls">
+              <label className="sr-only" htmlFor="editor-language">Programming language</label>
+              <select
+                id="editor-language"
+                className="form-input select-input"
+                value={language}
+                onChange={(event) => changeLanguage(event.target.value as SupportedLanguage)}
+                disabled={executing}
+              >
+                <option value="python">Python 3</option>
+                <option value="javascript">JavaScript</option>
+                <option value="cpp">C++</option>
+                <option value="java">Java</option>
+              </select>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setCode(BOILERPLATE[language])}
+                disabled={executing}
+              >
+                Reset
+              </button>
+            </div>
+            <div className="editor-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => void execute('run')} disabled={executing || !code.trim()}>
+                {executing && executionKind === 'run' && <RefreshCw size={15} className="animate-spin" aria-hidden="true" />}
+                Run examples
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void execute('submit')} disabled={executing || !code.trim()}>
+                {executing && executionKind === 'submit' && <RefreshCw size={15} className="animate-spin" aria-hidden="true" />}
+                Submit
+              </button>
+            </div>
+          </header>
+
+          <div className="code-editor-wrapper">
+            <Editor
+              height="100%"
+              language={language === 'cpp' ? 'cpp' : language}
+              theme="vs-dark"
+              value={code}
+              onChange={(value) => setCode(value || '')}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                readOnly: executing,
+                automaticLayout: true,
+              }}
+            />
           </div>
 
-          <article className="admin-problem-statement card">
-            <header className="admin-problem-statement-header">
+          <div className="console-panel" aria-live="polite">
+            <header className="console-header">
               <div>
-                <p className="eyebrow">Problem #{question.id}</p>
-                <h1>{question.title}</h1>
-                <div className="admin-problem-meta">
-                  <span>{contest?.title || `Contest #${question.test_id}`}</span>
-                  {contest && (
-                    <span className="flex items-center gap-2">
-                      <Clock size={15} aria-hidden="true" />
-                      {contest.duration} minutes
-                    </span>
-                  )}
-                </div>
+                <strong>Judge result</strong>
+                {executionKind && <span>{executionKind === 'run' ? 'Public examples' : 'Full submission'}</span>}
               </div>
-              <div className="view-only-callout">
-                <Eye size={20} aria-hidden="true" />
-                <div>
-                  <strong>Administrator preview</strong>
-                  <p>You can review this problem, but cannot run or submit code.</p>
-                </div>
-              </div>
+              {executionStatus && <span className={`console-status-badge status-${executionStatus}`}>{statusLabel}</span>}
             </header>
-
-            <section className="statement-section" aria-labelledby="problem-description-heading">
-              <h2 id="problem-description-heading">Description</h2>
-              <div className="question-content-html">
-                {question.description.split('\n').map((paragraph, index) => (
-                  <p key={index}>{paragraph}</p>
-                ))}
-              </div>
-            </section>
-
-            <section className="statement-section" aria-labelledby="example-cases-heading">
-              <h2 id="example-cases-heading">Example cases</h2>
-              {exampleTestCases.length === 0 ? (
-                <div className="statement-empty">
-                  No public example cases have been added to this problem.
-                </div>
-              ) : (
-                <div className="admin-example-grid">
-                  {exampleTestCases.map((testCase, index) => (
-                    <div key={testCase.id} className="example-case card">
-                      <h3>Example {index + 1}</h3>
-                      <div className="io-block">
-                        <span className="io-label">Input</span>
-                        <pre>{testCase.input_data}</pre>
-                      </div>
-                      <div className="io-block">
-                        <span className="io-label">Expected output</span>
-                        <pre>{testCase.output_data}</pre>
-                      </div>
-                    </div>
-                  ))}
+            <div className="console-content">
+              {!executionStatus && <p className="console-placeholder">Run the public examples or submit against the full test suite.</p>}
+              {['pending', 'running'].includes(executionStatus || '') && (
+                <div className="judge-progress"><RefreshCw size={16} className="animate-spin" aria-hidden="true" /> Judging in the isolated runner…</div>
+              )}
+              {executionStatus === 'accepted' && (
+                <div className="result-alert result-success">
+                  <CheckCircle size={20} aria-hidden="true" />
+                  <div><strong>Accepted</strong><p>{executionKind === 'run' ? 'Every public example passed.' : 'All public and hidden cases passed.'}</p></div>
                 </div>
               )}
-            </section>
-          </article>
-        </div>
-      )}
-
-      {!loading && !error && question && user?.role !== 'admin' && (
-        <div className="workspace-body" style={{ gridTemplateColumns: '45% 55%' }}>
-          {/* Left Panel: Description */}
-          <div className="workspace-panel description-panel">
-            <div className="panel-header" style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div className="flex items-center gap-3">
-                <a href={question ? `#test/${question.test_id}` : '#dashboard'} className="workspace-back" style={{ width: '28px', height: '28px' }}>
-                  <ArrowLeft size={16} />
-                </a>
-                <span className="text-xs text-muted" style={{ fontWeight: '500' }}>Description</span>
-              </div>
-              <div className="flex items-baseline gap-3 mt-1">
-                <h2 className="workspace-title" style={{ fontSize: '20px', fontWeight: '700' }}>
-                  {question.id}. {question.title}
-                </h2>
-                <span className={`problem-difficulty-badge ${getQuestionDifficulty(question).toLowerCase()}`} style={{ fontSize: '10px' }}>
-                  {getQuestionDifficulty(question)}
-                </span>
-              </div>
-            </div>
-            <div className="panel-content scrollable">
-              <div className="question-content-html" style={{ color: 'var(--text-primary)', opacity: 0.9, fontSize: '14px', lineHeight: '1.6' }}>
-                {question.description.split('\n').map((para, i) => (
-                  <p key={i} className="mb-4">{para}</p>
-                ))}
-              </div>
-
-              {exampleTestCases.length > 0 && (
-                <div className="example-cases-container mt-6">
-                  <h4 className="mb-3" style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Example cases
-                  </h4>
-                  {exampleTestCases.map((tc, index) => (
-                    <div key={tc.id} className="example-case card mb-3" style={{ padding: '16px', backgroundColor: 'var(--bg-main)' }}>
-                      <div className="example-case-header" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                        Example {index + 1}:
-                      </div>
-                      <div className="example-case-body">
-                        <div className="io-block">
-                          <span className="io-label" style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Input:</span>
-                          <pre style={{ margin: '0', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}>{tc.input_data}</pre>
-                        </div>
-                        <div className="io-block mt-2">
-                          <span className="io-label" style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>Expected Output:</span>
-                          <pre style={{ margin: '0', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', fontSize: '13px', fontFamily: 'var(--font-mono)' }}>{tc.output_data}</pre>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+              {executionStatus && FINAL_STATUSES.includes(executionStatus) && executionStatus !== 'accepted' && (
+                <div className="result-alert result-failure">
+                  <XCircle size={20} aria-hidden="true" />
+                  <div><strong>{statusLabel}</strong><p>Review the edge cases, adjust your solution, and try again.</p></div>
                 </div>
               )}
+              {executedAt && <p className="result-time">Completed at {executedAt.toLocaleTimeString()}</p>}
             </div>
           </div>
-
-          {/* Right Panel: Code Editor & Submission Console */}
-          <div className="workspace-panel editor-panel">
-            {/* Editor panel header matching mockup 2 */}
-            <div className="panel-header flex justify-between items-center" style={{ padding: '12px 24px', minHeight: '52px' }}>
-              <div className="flex items-center gap-3">
-                <select
-                  className="form-input select-input"
-                  value={language}
-                  onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
-                  disabled={submitting}
-                  style={{
-                    padding: '4px 12px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    height: '30px',
-                    background: 'var(--bg-main)',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-primary)',
-                    width: '120px'
-                  }}
-                >
-                  <option value="python">Python 3</option>
-                  <option value="javascript">JavaScript</option>
-                  <option value="cpp">C++</option>
-                  <option value="java">Java</option>
-                </select>
-                <button 
-                  onClick={() => setCode(BOILERPLATE[language])} 
-                  className="btn btn-secondary btn-sm"
-                  title="Reset boilerplate"
-                  disabled={submitting}
-                  style={{ height: '30px', width: '30px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                >
-                  <RefreshCw size={12} />
-                </button>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSubmit}
-                  className="btn btn-secondary btn-sm"
-                  disabled={submitting || !code.trim()}
-                  style={{ height: '30px', padding: '0 16px', fontSize: '13px', fontWeight: '600' }}
-                >
-                  Run
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  className="btn btn-primary btn-sm"
-                  disabled={submitting || !code.trim()}
-                  style={{
-                    height: '30px',
-                    padding: '0 16px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    backgroundColor: 'var(--color-primary)',
-                    color: 'var(--bg-main)'
-                  }}
-                >
-                  {submitting ? <RefreshCw size={12} className="animate-spin" /> : null}
-                  <span>Submit</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="code-editor-wrapper" style={{ flex: '1', minHeight: '300px' }}>
-              <Editor
-                height="100%"
-                language={language === 'cpp' ? 'cpp' : language === 'java' ? 'java' : language === 'javascript' ? 'javascript' : 'python'}
-                theme="vs-dark"
-                value={code}
-                onChange={handleEditorChange}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 14,
-                  lineNumbers: 'on',
-                  roundedSelection: false,
-                  scrollBeyondLastLine: false,
-                  readOnly: submitting,
-                  cursorStyle: 'line',
-                  automaticLayout: true,
-                }}
-              />
-            </div>
-
-            {/* Console Pane */}
-            <div className="console-panel" style={{ maxHeight: '250px' }}>
-              <div className="console-header flex justify-between items-center" style={{ padding: '8px 24px', borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-surface)' }}>
-                <div className="flex gap-4">
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--color-primary)' }}>Console</span>
-                </div>
-                {submissionStatus && (
-                  <div className={`console-status-badge badge ${getStatusClass(submissionStatus)}`} style={{ padding: '2px 8px', fontSize: '11px' }}>
-                    <span>{getStatusText(submissionStatus)}</span>
-                  </div>
-                )}
-              </div>
-              <div className="console-content scrollable" style={{ padding: '16px 24px' }}>
-                {!submissionStatus && (
-                  <p className="console-placeholder" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Your output results will show here once you run or submit.</p>
-                )}
-                {submissionStatus && (
-                  <div className="console-result">
-                    <p className="result-time text-xs text-muted" style={{ marginBottom: '8px' }}>
-                      Executed at: {new Date().toLocaleTimeString()}
-                    </p>
-                    
-                    {submissionStatus === 'accepted' && (
-                      <div className="result-success-alert flex items-center gap-3" style={{ padding: '12px 16px', background: 'rgba(34, 197, 94, 0.05)', borderRadius: '6px', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
-                        <CheckCircle style={{ color: 'var(--color-primary)' }} size={20} />
-                        <div>
-                          <h4 style={{ color: 'var(--color-primary)', fontSize: '14px', fontWeight: '600' }}>Accepted</h4>
-                          <p className="text-secondary text-sm">All test cases passed successfully!</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {['wrong_answer', 'tle', 'compile_error', 'runtime_error'].includes(submissionStatus) && (
-                      <div className="result-failure-alert flex items-center gap-3" style={{ padding: '12px 16px', background: 'rgba(239, 68, 68, 0.05)', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                        <XCircle style={{ color: 'var(--color-danger)' }} size={20} />
-                        <div>
-                          <h4 style={{ color: 'var(--color-danger)', fontSize: '14px', fontWeight: '600' }}>{getStatusText(submissionStatus)}</h4>
-                          <p className="text-secondary text-sm">Your code did not pass verification. Refactor and try again.</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {['pending', 'running'].includes(submissionStatus) && (
-                      <div className="flex items-center gap-2">
-                        <RefreshCw className="animate-spin text-info" size={16} />
-                        <span style={{ fontSize: '13px' }}>Judging solution on sandbox virtual machine...</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        </section>
+      </div>
     </div>
   );
 };

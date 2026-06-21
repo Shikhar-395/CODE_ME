@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -15,7 +16,7 @@ from backend.main import (
     list_admin_tests,
     user_signin,
 )
-from backend.model import Base, Language, Question, Test, TestCase, User, UserRole
+from backend.model import Attempt, Base, Language, Question, Test, TestCase, User, UserRole
 from backend.schema import SubmissionCreate, UserCreate, UserLogin
 from backend.seed import seed_demo_data
 
@@ -272,6 +273,22 @@ class DatabaseBehaviorTests(unittest.IsolatedAsyncioTestCase):
                 test_id=test.id,
             )
             db.add(question)
+            await db.flush()
+            db.add(
+                TestCase(
+                    input_data="",
+                    output_data="ok",
+                    is_hidden=True,
+                    question_id=question.id,
+                )
+            )
+            attempt = Attempt(
+                started_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
+                user_id=regular_user.id,
+                test_id=test.id,
+            )
+            db.add(attempt)
             await db.commit()
 
             payload = SubmissionCreate(
@@ -333,7 +350,7 @@ class DatabaseBehaviorTests(unittest.IsolatedAsyncioTestCase):
             )
             await db.commit()
 
-            response = await get_question(question.id, db)
+            response = await get_question(question.id, db, admin)
 
         self.assertEqual(len(response.test_cases), 1)
         self.assertEqual(response.test_cases[0].input_data, "visible")
@@ -359,9 +376,9 @@ class DatabaseBehaviorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(first, {
             "users": 1,
-            "tests": 3,
-            "questions": 9,
-            "test_cases": 36,
+            "tests": 10,
+            "questions": 100,
+            "test_cases": 500,
         })
         self.assertEqual(second, {
             "users": 0,
@@ -369,7 +386,7 @@ class DatabaseBehaviorTests(unittest.IsolatedAsyncioTestCase):
             "questions": 0,
             "test_cases": 0,
         })
-        self.assertEqual((user_count, test_count, question_count, case_count), (1, 3, 9, 36))
+        self.assertEqual((user_count, test_count, question_count, case_count), (1, 10, 100, 500))
         self.assertEqual(admin.role, UserRole.ADMIN)
         self.assertTrue(verify_password("4444", admin.password)[0])
 

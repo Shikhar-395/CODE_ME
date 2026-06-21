@@ -18,8 +18,9 @@ class ConnectionManager:
         websocket= self.connection.get(submission_id)
 
         if websocket:
-            await websocket.send_json(
-                payload
-            )
+            try:
+                await websocket.send_json(payload)
+            except Exception:
+                self.disconnect(submission_id)
 
 manager= ConnectionManager()

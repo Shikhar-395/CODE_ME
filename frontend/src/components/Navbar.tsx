@@ -72,7 +72,6 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout, currentHash }) =
                 <a
                   href="#submissions"
                   className={`navbar-link ${currentHash === '#submissions' ? 'active' : ''}`}
-                  onClick={(e) => e.preventDefault()}
                 >
                   <FileText size={15} aria-hidden="true" />
                   <span>Submissions</span>

@@ -10,6 +10,7 @@ import { AdminProblems } from './pages/AdminProblems';
 import { TestDetail } from './pages/TestDetail';
 import { QuestionDetail } from './pages/QuestionDetail';
 import { AdminPanel } from './pages/AdminPanel';
+import { Submissions } from './pages/Submissions';
 import { Loader2 } from 'lucide-react';
 
 function useHashRoute() {
@@ -101,6 +102,7 @@ function App() {
 
     if (cleanHash === 'contests') return { route: 'contests' };
     if (cleanHash === 'problems') return { route: 'problems' };
+    if (cleanHash === 'submissions') return { route: 'submissions' };
 
     return { route: user?.role === 'admin' ? 'admin' : 'dashboard' };
   };
@@ -136,6 +138,8 @@ function App() {
         return <Contests user={user} />;
       case 'problems':
         return <AdminProblems user={user} />;
+      case 'submissions':
+        return <Submissions />;
       case 'dashboard':
       default:
         return <Dashboard user={user} />;

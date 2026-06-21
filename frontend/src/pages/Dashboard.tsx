@@ -10,6 +10,7 @@ interface DashboardProps {
 
 interface DashboardQuestion extends Question {
   contestTitle: string;
+  accessState: 'timed' | 'practice' | 'admin' | 'preview' | 'locked';
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
@@ -41,7 +42,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             test.questions.forEach((question) => {
               allQuestions.push({
                 ...question,
-                contestTitle: test.title
+                contestTitle: test.title,
+                accessState: test.access_state,
               });
             });
           }
@@ -60,18 +62,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
       ignore = true;
     };
   }, []);
-
-  const getQuestionDifficulty = (q: DashboardQuestion) => {
-    const title = q.title.toLowerCase();
-    if (title.includes('two sum') || title.includes('easy') || q.id % 3 === 0) return 'EASY';
-    if (title.includes('median') || title.includes('hard') || q.id % 3 === 2) return 'HARD';
-    return 'MEDIUM';
-  };
-
-  const getQuestionStatus = (index: number) => {
-    // Matching mockup 1 checkmark sequence (1st and 3rd resolved)
-    return index % 2 === 0;
-  };
 
   // Filter questions by search query
   const filteredQuestions = questions.filter(q => 
@@ -143,8 +133,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
             {/* Problems Table */}
             {filteredQuestions.length === 0 ? (
-              <div className="text-center py-12 text-secondary">
-                <p>No problems found matching search criteria.</p>
+              <div className="empty-table-state text-center text-secondary">
+                <p className="mb-4">
+                  {questions.length === 0
+                    ? 'Start a contest to unlock its problems.'
+                    : 'No problems match your search.'}
+                </p>
+                {questions.length === 0 && <a href="#contests" className="btn btn-primary">Browse contests</a>}
               </div>
             ) : (
               <table className="problems-table">
@@ -159,8 +154,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                 </thead>
                 <tbody>
                   {currentQuestions.map((q, idx) => {
-                    const difficulty = getQuestionDifficulty(q);
-                    const isSolved = getQuestionStatus(indexOfFirstItem + idx);
                     return (
                       <tr key={q.id}>
                         <td style={{ color: 'var(--text-muted)', fontWeight: '500' }}>
@@ -175,18 +168,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                           </span>
                         </td>
                         <td>
-                          <span className={`problem-difficulty-badge ${difficulty.toLowerCase()}`}>
-                            {difficulty}
+                          <span className={`problem-difficulty-badge ${q.difficulty}`}>
+                            {q.difficulty}
                           </span>
                         </td>
                         <td>
-                          {isSolved ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-success)', fontWeight: '600', fontSize: '13px' }}>
-                              Solved
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Todo</span>
-                          )}
+                          <span className={`attempt-state ${q.accessState === 'timed' ? 'attempt-active' : 'attempt-completed'}`}>
+                            {q.accessState === 'timed' ? 'Timed' : 'Practice'}
+                          </span>
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <a href={`#question/${q.id}`} className="play-btn" title="Solve problem">

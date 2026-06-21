@@ -1,6 +1,7 @@
 fastapi
-uvicorn
+uvicorn[standard]
 sqlalchemy
+alembic
 aiosqlite
 greenlet
 PyJWT

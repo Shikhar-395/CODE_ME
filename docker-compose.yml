@@ -54,15 +54,9 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     command:
-      - uvicorn
-      - backend.main:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-      - --reload
-      - --reload-dir
-      - backend
+      - sh
+      - -c
+      - alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend
     ports:
       - "8000:8000"
     environment: *backend-environment
@@ -104,6 +98,8 @@ services:
         condition: service_healthy
       judge-image:
         condition: service_completed_successfully
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   # Builds the sandbox image once, then exits successfully before the worker starts.
@@ -127,7 +123,7 @@ services:
       timeout: 5s
       retries: 15
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
 
   redis:

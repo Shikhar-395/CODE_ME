@@ -15,6 +15,7 @@ python3 -m venv venv
 venv/bin/python -m pip install --upgrade pip
 venv/bin/python -m pip install -r requirements.txt
 
+venv/bin/alembic upgrade head
 venv/bin/python -m unittest discover -v
 ./docker/build-judge.sh
 venv/bin/python -m backend.docker_smoke_test

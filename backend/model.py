@@ -1,7 +1,15 @@
 from enum import Enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Integer, String, Text, ForeignKey, Enum as SQLEnum, DateTime
+from sqlalchemy import (
+    DateTime,
+    Enum as SQLEnum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -17,6 +25,15 @@ class SubmissionStatus(str, Enum):
     TLE = "tle"
     COMPILE_ERROR = "compile_error"
     RUNTIME_ERROR = "runtime_error"
+
+class Difficulty(str, Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
+class SubmissionKind(str, Enum):
+    RUN = "run"
+    SUBMIT = "submit"
 
 class Language(str, Enum):
     CPP = "cpp"
@@ -56,6 +73,11 @@ class Question(Base):
     id: Mapped[int] = mapped_column(Integer, autoincrement=True, primary_key=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    difficulty: Mapped[Difficulty] = mapped_column(
+        SQLEnum(Difficulty),
+        default=Difficulty.EASY,
+        nullable=False,
+    )
     test_id: Mapped[int] = mapped_column(ForeignKey("tests.id", ondelete="CASCADE"), nullable=False)
     test: Mapped["Test"] = relationship(back_populates="questions")
     test_cases: Mapped[list["TestCase"]] = relationship(back_populates="question", cascade="all, delete-orphan")
@@ -73,15 +95,20 @@ class TestCase(Base):
 
 class Attempt(Base):
     __tablename__ = "attempts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "test_id", name="uq_attempt_user_test"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, autoincrement=True, primary_key=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda: datetime.now(timezone.utc))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     test_id: Mapped[int] = mapped_column(ForeignKey("tests.id", ondelete="CASCADE"), nullable=False)
     user: Mapped["User"] = relationship(back_populates="attempts")
     test: Mapped["Test"] = relationship(back_populates="attempts")
+    submissions: Mapped[list["Submission"]] = relationship(back_populates="attempt")
 
 class Submission(Base):
     __tablename__ = "submissions"
@@ -94,8 +121,18 @@ class Submission(Base):
         default=SubmissionStatus.PENDING,
         nullable=False,
     )
+    kind: Mapped[SubmissionKind] = mapped_column(
+        SQLEnum(SubmissionKind),
+        default=SubmissionKind.SUBMIT,
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda: datetime.now(timezone.utc))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    attempt_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attempts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     user: Mapped["User"] = relationship(back_populates="submissions")
     question: Mapped["Question"] = relationship(back_populates="submissions")
+    attempt: Mapped["Attempt | None"] = relationship(back_populates="submissions")

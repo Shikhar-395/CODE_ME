@@ -25,6 +25,9 @@ export interface Test {
   description: string;
   duration: number; // in minutes
   created_by: number;
+  question_count: number;
+  attempt: Attempt | null;
+  access_state: 'locked' | 'timed' | 'practice' | 'admin' | 'preview';
 }
 
 export interface Question {
@@ -32,6 +35,7 @@ export interface Question {
   title: string;
   description: string;
   test_id: number;
+  difficulty: 'easy' | 'medium' | 'hard';
 }
 
 export interface TestCase {
@@ -48,6 +52,23 @@ export interface TestWithQuestions extends Test {
 
 export interface QuestionDetail extends Question {
   test_cases: TestCase[];
+  contest_title: string;
+  contest_duration: number;
+  attempt: Attempt | null;
+  access_state: 'timed' | 'practice' | 'admin';
+}
+
+export interface Attempt {
+  id: number;
+  test_id: number;
+  user_id: number;
+  score: number;
+  solved_count: number;
+  status: 'not_started' | 'active' | 'completed' | 'expired';
+  started_at: string;
+  expires_at: string;
+  submitted_at: string | null;
+  server_time: string;
 }
 
 export interface Submission {
@@ -55,8 +76,31 @@ export interface Submission {
   code: string;
   language: 'cpp' | 'python' | 'java' | 'javascript';
   status: 'pending' | 'running' | 'accepted' | 'wrong_answer' | 'tle' | 'compile_error' | 'runtime_error';
+  kind: 'run' | 'submit';
   user_id: number;
   question_id: number;
+  attempt_id: number | null;
+  created_at: string;
+}
+
+export interface SubmissionHistoryItem {
+  id: number;
+  question_id: number;
+  question_title: string;
+  test_id: number;
+  contest_title: string;
+  language: Submission['language'];
+  status: Submission['status'];
+  mode: 'timed' | 'practice';
+  created_at: string;
+}
+
+export interface SubmissionHistoryResponse {
+  items: SubmissionHistoryItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
 }
 
 // Global configurations for fetch
@@ -103,6 +147,16 @@ export const api = {
   listAdminTests: () => request<TestWithQuestions[]>('/admin/tests'),
   
   getTest: (testId: number) => request<TestWithQuestions>(`/tests/${testId}`),
+
+  startAttempt: (testId: number) => request<Attempt>(`/tests/${testId}/attempts/start`, {
+    method: 'POST',
+  }),
+
+  getAttempt: (testId: number) => request<Attempt | null>(`/tests/${testId}/attempt`),
+
+  finishAttempt: (attemptId: number) => request<Attempt>(`/attempts/${attemptId}/finish`, {
+    method: 'POST',
+  }),
   
   createTest: (data: { title: string; description: string; duration: number }) => request<Test>('/create-test', {
     method: 'POST',
@@ -129,7 +183,15 @@ export const api = {
     body: JSON.stringify(data),
   }),
 
+  runCode: (data: { question_id: number; code: string; language: string }) => request<Submission>('/executions/run', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
   getSubmission: (submissionId: number) => request<Submission>(`/submissions/${submissionId}`),
+
+  listSubmissions: (page = 1, pageSize = 20) =>
+    request<SubmissionHistoryResponse>(`/submissions?page=${page}&page_size=${pageSize}`),
 
   // WebSocket URL
   getWebSocketUrl: (submissionId: number) => {

@@ -1,6 +1,14 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field, ConfigDict
 
-from .model import UserRole, Language, SubmissionStatus
+from .model import (
+    Difficulty,
+    Language,
+    SubmissionKind,
+    SubmissionStatus,
+    UserRole,
+)
 
 
 class UserCreate(BaseModel):
@@ -24,6 +32,21 @@ class UserResponse(BaseModel):
     role: UserRole
 
 
+class AttemptResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    test_id: int
+    user_id: int
+    score: int
+    solved_count: int
+    status: str
+    started_at: datetime
+    expires_at: datetime
+    submitted_at: datetime | None
+    server_time: datetime
+
+
 class TestCreate(BaseModel):
     title: str = Field(min_length=5, max_length=50)
     description: str = Field(min_length=5, max_length=100)
@@ -38,12 +61,16 @@ class TestResponse(BaseModel):
     description: str
     duration: int
     created_by: int
+    question_count: int = 0
+    attempt: AttemptResponse | None = None
+    access_state: str = "preview"
 
 
 class QuestionCreate(BaseModel):
     test_id: int
     title: str = Field(min_length=4, max_length=50)
-    description: str = Field(min_length=4, max_length=100)
+    description: str = Field(min_length=4, max_length=4000)
+    difficulty: Difficulty = Difficulty.EASY
 
 
 class QuestionResponse(BaseModel):
@@ -53,6 +80,7 @@ class QuestionResponse(BaseModel):
     title: str
     description: str
     test_id: int
+    difficulty: Difficulty
 
 
 class TestCaseCreate(BaseModel):
@@ -72,15 +100,6 @@ class TestCaseResponse(BaseModel):
     question_id: int
 
 
-class AttemptResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    test_id: int
-    user_id: int
-    score: int
-
-
 class SubmissionCreate(BaseModel):
     question_id: int
     code: str = Field(min_length=1)
@@ -94,8 +113,31 @@ class SubmissionResponse(BaseModel):
     code: str
     language: Language
     status: SubmissionStatus
+    kind: SubmissionKind
     user_id: int
     question_id: int
+    attempt_id: int | None
+    created_at: datetime
+
+
+class SubmissionHistoryItem(BaseModel):
+    id: int
+    question_id: int
+    question_title: str
+    test_id: int
+    contest_title: str
+    language: Language
+    status: SubmissionStatus
+    mode: str
+    created_at: datetime
+
+
+class SubmissionHistoryResponse(BaseModel):
+    items: list[SubmissionHistoryItem]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
 
 
 class TestWithQuestionsResponse(BaseModel):
@@ -107,6 +149,9 @@ class TestWithQuestionsResponse(BaseModel):
     duration: int
     created_by: int
     questions: list[QuestionResponse] = []
+    question_count: int = 0
+    attempt: AttemptResponse | None = None
+    access_state: str = "preview"
 
 
 class QuestionDetailResponse(BaseModel):
@@ -116,6 +161,11 @@ class QuestionDetailResponse(BaseModel):
     title: str
     description: str
     test_id: int
+    difficulty: Difficulty
+    contest_title: str
+    contest_duration: int
+    attempt: AttemptResponse | None = None
+    access_state: str
     test_cases: list[TestCaseResponse] = []
 
 

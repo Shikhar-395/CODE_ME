@@ -7,6 +7,7 @@ cd "${APP_DIR}"
 git pull --ff-only origin master
 
 venv/bin/python -m pip install -r requirements.txt
+venv/bin/alembic upgrade head
 venv/bin/python -m unittest discover -v
 ./docker/build-judge.sh
 venv/bin/python -m backend.docker_smoke_test

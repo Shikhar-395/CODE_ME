@@ -40,7 +40,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       <div className="auth-card card">
         <div className="auth-header">
           <h2>Welcome Back</h2>
-          <p className="text-secondary text-sm">Solve code challenges on our modern platform</p>
         </div>
 
         {error && (
